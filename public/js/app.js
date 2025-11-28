@@ -615,7 +615,10 @@ function handleAutomap() {
         createNewPlan();
       }
       currentPlan.assignments = currentAssignments;
-      currentPlan.name = `Automap - ${FAIRNESS_PRESETS[fairnessPreset]?.label || 'Custom'}`;
+      const presetLabel = window.FAIRNESS_PRESETS && window.FAIRNESS_PRESETS[fairnessPreset] 
+        ? window.FAIRNESS_PRESETS[fairnessPreset].label 
+        : 'Custom';
+      currentPlan.name = `Automap - ${presetLabel}`;
       planNameInput.value = currentPlan.name;
       
       // Redraw and update metrics
