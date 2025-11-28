@@ -1,124 +1,85 @@
 <?php
-header('Content-Type: application/json');
+/**
+ * Load State API - Streams GeoJSON directly to client
+ * 
+ * Uses direct file streaming with readfile() - no PHP memory overhead.
+ * The file goes straight from disk to the network buffer.
+ */
 
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+// Minimal error handling
+ini_set('display_errors', 0);
+@set_time_limit(300);
 
-// Convert any PHP error into a JSON response instead of HTML
-set_error_handler(function ($errno, $errstr, $errfile, $errline) {
-    http_response_code(500);
-    echo json_encode([
-        'error'   => 'PHP error',
-        'errno'   => $errno,
-        'message' => $errstr,
-        'file'    => $errfile,
-        'line'    => $errline,
-    ]);
-    exit;
-});
-
-// Convert uncaught exceptions into JSON
-set_exception_handler(function ($e) {
-    http_response_code(500);
-    echo json_encode([
-        'error'   => 'Uncaught exception',
-        'message' => $e->getMessage(),
-        'file'    => $e->getFile(),
-        'line'    => $e->getLine(),
-    ]);
-    exit;
-});
-
-$baseDir = realpath(__DIR__ . '/..');          // e.g. /home/www/zudesa.com/maps
-if ($baseDir === false) {
-    echo json_encode(['error' => 'Cannot resolve base directory.']);
-    exit;
+// Helper to output JSON error
+function jsonError($msg, $code = 500) {
+    http_response_code($code);
+    header('Content-Type: application/json');
+    die(json_encode(['error' => $msg]));
 }
+
+// Resolve paths
+$baseDir = realpath(__DIR__ . '/..');
+if (!$baseDir) jsonError('Cannot resolve base directory.');
+
 $dataDir = $baseDir . '/data';
+$stateCode = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $_GET['state'] ?? ''));
+if (!$stateCode) jsonError('Missing or invalid state parameter.', 400);
 
-$stateParam = $_GET['state'] ?? '';
-$stateParam = trim($stateParam);
-if ($stateParam === '') {
-    echo json_encode(['error' => 'Missing state parameter.']);
-    exit;
-}
-
-// Folder name under data/precincts – e.g. NC
-$stateCode = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', $stateParam));
-if ($stateCode === '') {
-    echo json_encode(['error' => 'Invalid state code.']);
-    exit;
-}
-
-// This is where upload_precincts.php wrote the file
-$precinctsPath = $dataDir . '/precincts/' . $stateCode . '/precincts.geojson';
+$precinctsPath = "$dataDir/precincts/$stateCode/precincts.geojson";
 
 if (!file_exists($precinctsPath)) {
-    echo json_encode([
-        'error' => 'No precinct data for this state yet. Upload shapefile ZIP first.',
-        'path'  => $precinctsPath,
-    ]);
-    exit;
+    // List available states
+    $available = [];
+    $dir = "$dataDir/precincts";
+    if (is_dir($dir) && ($dh = opendir($dir))) {
+        while (($e = readdir($dh)) !== false) {
+            if ($e[0] !== '.' && is_dir("$dir/$e") && file_exists("$dir/$e/precincts.geojson")) {
+                $available[] = $e;
+            }
+        }
+        closedir($dh);
+    }
+    jsonError("No data for state '$stateCode'. Available: " . implode(', ', $available), 404);
 }
+
 if (!is_readable($precinctsPath)) {
-    echo json_encode([
-        'error' => 'precincts.geojson is not readable.',
-        'path'  => $precinctsPath,
-    ]);
-    exit;
+    jsonError('File not readable.', 403);
 }
 
-$raw = file_get_contents($precinctsPath);
-if ($raw === false) {
-    echo json_encode(['error' => 'Failed to read precincts.geojson.']);
-    exit;
-}
+// Get state metadata
+$stateMeta = ['code' => $stateCode, 'abbr' => $stateCode, 'name' => $stateCode];
+$defaultDistricts = 10;
 
-$geo = json_decode($raw, true);
-if (json_last_error() !== JSON_ERROR_NONE) {
-    echo json_encode([
-        'error'   => 'precincts.geojson is not valid JSON.',
-        'details' => json_last_error_msg(),
-    ]);
-    exit;
-}
-if (!is_array($geo) || ($geo['type'] ?? '') !== 'FeatureCollection') {
-    echo json_encode(['error' => 'precincts.geojson is not a GeoJSON FeatureCollection.']);
-    exit;
-}
-
-// Optional: pretty state metadata from states.json
-$stateMeta = [
-    'code' => $stateCode,
-    'abbr' => $stateCode,
-    'name' => $stateCode,
-];
-$statesFile = $dataDir . '/states.json';
+$statesFile = "$dataDir/states.json";
 if (file_exists($statesFile)) {
-    $metaJson = json_decode(file_get_contents($statesFile), true);
-    if (is_array($metaJson)) {
-        foreach ($metaJson as $st) {
-            // Use abbr (state abbreviation like "CA", "NC") first for matching,
-            // fall back to code (FIPS code like "06", "37") if abbr not present
-            $abbr = strtoupper($st['abbr'] ?? $st['code'] ?? '');
-            if ($abbr === $stateCode) {
+    $states = json_decode(file_get_contents($statesFile), true);
+    if (is_array($states)) {
+        foreach ($states as $s) {
+            if (strtoupper($s['abbr'] ?? $s['code'] ?? '') === $stateCode) {
                 $stateMeta = [
-                    'code' => $abbr,
-                    'abbr' => $st['abbr'] ?? $st['code'] ?? $abbr,
-                    'name' => $st['name'] ?? $abbr,
+                    'code' => $stateCode,
+                    'abbr' => $s['abbr'] ?? $stateCode,
+                    'name' => $s['name'] ?? $stateCode,
                 ];
+                $defaultDistricts = $s['defaultNumDistricts'] ?? 10;
                 break;
             }
         }
     }
 }
 
-// You can tune this per state if you wish
-$defaultNumDistricts = 10;
+// Stream response directly - no memory overhead
+header('Content-Type: application/json');
 
-echo json_encode([
-    'state'               => $stateMeta,
-    'precincts'           => $geo,
-    'defaultNumDistricts' => $defaultNumDistricts,
-]);
+// Disable output buffering for true streaming
+while (ob_get_level()) ob_end_clean();
+
+// Start JSON object, embed metadata, then stream the geojson file directly
+echo '{"state":' . json_encode($stateMeta) . ',';
+echo '"defaultNumDistricts":' . $defaultDistricts . ',';
+echo '"precincts":';
+
+// Stream file directly from disk to output - uses almost no PHP memory
+readfile($precinctsPath);
+
+echo '}';
