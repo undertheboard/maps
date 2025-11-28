@@ -1,0 +1,7 @@
+[
+  { "code": "06", "abbr": "CA", "name": "California",      "defaultNumDistricts": 52 },
+  { "code": "48", "abbr": "TX", "name": "Texas",           "defaultNumDistricts": 38 },
+  { "code": "36", "abbr": "NY", "name": "New York",        "defaultNumDistricts": 26 },
+  { "code": "12", "abbr": "FL", "name": "Florida",         "defaultNumDistricts": 28 },
+  { "code": "37", "abbr": "NC", "name": "North Carolina",  "defaultNumDistricts": 14 }
+]

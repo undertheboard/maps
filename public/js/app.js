@@ -1,0 +1,427 @@
+let currentState = null;
+let currentStateMeta = null;
+let currentGeojson = null;
+let currentPlan = null;
+let currentAssignments = {};
+let numDistricts = 10;
+
+const stateSelect = document.getElementById('stateSelect');
+const loadStateBtn = document.getElementById('loadStateBtn');
+const numDistrictsInput = document.getElementById('numDistricts');
+const planNameInput = document.getElementById('planName');
+const newPlanBtn = document.getElementById('newPlanBtn');
+const savePlanBtn = document.getElementById('savePlanBtn');
+const existingPlansSelect = document.getElementById('existingPlans');
+const loadPlanBtn = document.getElementById('loadPlanBtn');
+const uploadForm = document.getElementById('uploadForm');
+const uploadStatus = document.getElementById('uploadStatus');
+const metricsPanel = document.getElementById('metricsPanel');
+const districtColorLegend = document.getElementById('districtColorLegend');
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadStatesList();
+  attachEventHandlers();
+  // Initialize your existing canvas-based map
+  initMapCanvas(handlePrecinctClick, handleHoverPrecinct);
+});
+
+function attachEventHandlers() {
+  loadStateBtn.addEventListener('click', () => {
+    const value = stateSelect.value;
+    if (!value) {
+      alert('Select a state first.');
+      return;
+    }
+    loadState(value);
+  });
+
+  numDistrictsInput.addEventListener('change', () => {
+    numDistricts = parseInt(numDistrictsInput.value, 10) || 1;
+    renderDistrictLegend(numDistricts);
+    recomputeMetrics();
+    redrawMap();
+  });
+
+  newPlanBtn.addEventListener('click', () => {
+    if (!currentState) {
+      alert('Select a state first.');
+      return;
+    }
+    createNewPlan();
+  });
+
+  savePlanBtn.addEventListener('click', saveCurrentPlanToServer);
+
+  loadPlanBtn.addEventListener('click', () => {
+    const planId = existingPlansSelect.value;
+    if (!planId || !currentState) {
+      alert('Select a plan from the dropdown.');
+      return;
+    }
+    loadPlan(currentState, planId);
+  });
+
+  uploadForm.addEventListener('submit', handleUpload);
+}
+
+async function loadStatesList() {
+  try {
+    const res = await fetch('api/list_states.php');
+    const data = await res.json();
+    if (data.error) {
+      console.error(data.error);
+    }
+    if (!data || !Array.isArray(data.states)) return;
+
+    stateSelect.innerHTML = '<option value="">Select a state</option>';
+    data.states.forEach(st => {
+      const opt = document.createElement('option');
+      opt.value = st.code || st.abbr; // two-letter code preferred
+      opt.textContent = `${st.abbr || st.code} - ${st.name}`;
+      stateSelect.appendChild(opt);
+    });
+  } catch (e) {
+    console.error(e);
+    alert('Could not load states list. Check api/list_states.php and states.json.');
+  }
+}
+
+async function loadState(stateCode) {
+  try {
+    const res = await fetch(`api/load_state.php?state=${encodeURIComponent(stateCode)}`);
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+    // data.state.code should match e.g. "NC"
+    currentState = data.state.code;
+    currentStateMeta = data.state;
+    currentGeojson = data.precincts;
+    currentAssignments = {};
+    currentPlan = null;
+
+    numDistricts = data.defaultNumDistricts || 10;
+    numDistrictsInput.value = numDistricts;
+
+    await loadStatePlansList(currentState);
+
+    // Canvas engine
+    setGeojson(currentGeojson, currentAssignments);
+    renderDistrictLegend(numDistricts);
+    recomputeMetrics();
+
+    // NEW: also update Leaflet basemap overlay
+    updateLeafletOverlay(currentGeojson);
+  } catch (e) {
+    console.error(e);
+    alert('Failed to load state data. Check api/load_state.php.');
+  }
+}
+
+async function loadStatePlansList(stateCode) {
+  existingPlansSelect.innerHTML = '';
+  try {
+    const res = await fetch(`api/load_plan.php?state=${encodeURIComponent(stateCode)}&list=1`);
+    const data = await res.json();
+    if (data.error) {
+      console.warn(data.error);
+    }
+    if (!data.plans) {
+      existingPlansSelect.innerHTML = '<option value="">(no saved plans)</option>';
+      return;
+    }
+    existingPlansSelect.innerHTML = '<option value="">Select a plan</option>';
+    data.plans.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.planId;
+      opt.textContent = p.name;
+      existingPlansSelect.appendChild(opt);
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function createNewPlan() {
+  currentPlan = {
+    state: currentState,
+    planId: null,
+    name: planNameInput.value || 'Untitled Plan',
+    numDistricts: numDistricts,
+    assignments: {},
+    metrics: {},
+  };
+  currentAssignments = currentPlan.assignments;
+  recomputeMetrics();
+  redrawMap();
+}
+
+async function loadPlan(stateCode, planId) {
+  try {
+    const res = await fetch(`api/load_plan.php?state=${encodeURIComponent(stateCode)}&planId=${encodeURIComponent(planId)}`);
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+    currentPlan = data.plan;
+    currentAssignments = currentPlan.assignments || {};
+    numDistricts = currentPlan.numDistricts || numDistricts;
+    numDistrictsInput.value = numDistricts;
+
+    planNameInput.value = currentPlan.name || '';
+    renderDistrictLegend(numDistricts);
+    recomputeMetrics();
+    redrawMap();
+  } catch (e) {
+    console.error(e);
+    alert('Could not load plan. Check api/load_plan.php and file permissions.');
+  }
+}
+
+function handlePrecinctClick(precinctId, buttonMode) {
+  if (!currentState) return;
+  if (!currentPlan) {
+    createNewPlan();
+  }
+
+  const drawMode = document.querySelector('input[name="drawMode"]:checked')?.value || 'assign';
+
+  if (drawMode === 'erase') {
+    delete currentAssignments[precinctId];
+  } else {
+    const targetDistrict = pickCurrentDistrictForUser();
+    currentAssignments[precinctId] = targetDistrict;
+  }
+
+  recomputeMetrics();
+  redrawMap();
+}
+
+function pickCurrentDistrictForUser() {
+  // For now, always district 1.
+  return 1;
+}
+
+function handleHoverPrecinct(precinctFeature, screenX, screenY) {
+  const hoverInfo = document.getElementById('hoverInfo');
+  if (!precinctFeature) {
+    hoverInfo.style.display = 'none';
+    return;
+  }
+  const props = precinctFeature.properties || {};
+  const pop = props.population ?? 'N/A';
+  const dem = props.dem ?? 'N/A';
+  const rep = props.rep ?? 'N/A';
+  const id = props.id || props.precinct_id || '(no id)';
+  const assigned = currentAssignments[id] ?? 'Unassigned';
+
+  hoverInfo.innerHTML = `
+    <strong>Precinct: ${id}</strong><br>
+    District: ${assigned}<br>
+    Population: ${pop}<br>
+    Dem votes: ${dem}<br>
+    Rep votes: ${rep}
+  `;
+  hoverInfo.style.left = (screenX + 10) + 'px';
+  hoverInfo.style.top = (screenY + 10) + 'px';
+  hoverInfo.style.display = 'block';
+}
+
+function renderDistrictLegend(n) {
+  districtColorLegend.innerHTML = '';
+  const colors = getDistrictColors(n);
+  for (let i = 1; i <= n; i++) {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    const swatch = document.createElement('div');
+    swatch.className = 'legend-color';
+    swatch.style.background = colors[i];
+    item.appendChild(swatch);
+    const label = document.createElement('span');
+    label.textContent = `District ${i}`;
+    item.appendChild(label);
+    districtColorLegend.appendChild(item);
+  }
+}
+
+async function saveCurrentPlanToServer() {
+  if (!currentState) {
+    alert('Select a state first.');
+    return;
+  }
+  if (!currentPlan) {
+    createNewPlan();
+  }
+  currentPlan.name = planNameInput.value || currentPlan.name;
+  currentPlan.numDistricts = numDistricts;
+  currentPlan.assignments = currentAssignments;
+  currentPlan.metrics = await computeMetricsLocally(currentGeojson, currentAssignments, numDistricts);
+
+  try {
+    const res = await fetch('api/save_plan.php', {
+      method: 'POST',
+      body: JSON.stringify(currentPlan),
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+    currentPlan.planId = data.planId;
+    alert('Plan saved.');
+    await loadStatePlansList(currentState);
+  } catch (e) {
+    console.error(e);
+    alert('Could not save plan. Check api/save_plan.php and file permissions.');
+  }
+}
+
+function recomputeMetrics() {
+  if (!currentGeojson) return;
+  computeMetricsLocally(currentGeojson, currentAssignments, numDistricts)
+    .then(metrics => {
+      if (currentPlan) {
+        currentPlan.metrics = metrics;
+      }
+      renderMetrics(metrics);
+    })
+    .catch(err => console.error(err));
+}
+
+function renderMetrics(metrics) {
+  if (!metrics || !metrics.byDistrict || Object.keys(metrics.byDistrict).length === 0) {
+    metricsPanel.innerHTML = '<p>No metrics yet. Start assigning precincts.</p>';
+    return;
+  }
+  const rows = Object.keys(metrics.byDistrict)
+    .sort((a, b) => Number(a) - Number(b))
+    .map(d => {
+      const m = metrics.byDistrict[d];
+      return `
+        <tr>
+          <td style="text-align:left;">${d}</td>
+          <td>${m.population.toLocaleString()}</td>
+          <td>${(m.demVotes ?? 0).toLocaleString()}</td>
+          <td>${(m.repVotes ?? 0).toLocaleString()}</td>
+          <td>${(m.partisanLean * 100).toFixed(1)}%</td>
+          <td>${m.compactness.toFixed(3)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  metricsPanel.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:left;">District</th>
+          <th>Population</th>
+          <th>Dem votes</th>
+          <th>Rep votes</th>
+          <th>Dem share</th>
+          <th>Compactness</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function handleUpload(e) {
+  e.preventDefault();
+  uploadStatus.textContent = 'Uploading...';
+  const formData = new FormData(uploadForm);
+  try {
+    const res = await fetch('api/upload_precincts.php', {
+      method: 'POST',
+      body: formData
+    });
+
+    const text = await res.text();
+    console.log('upload_precincts.php raw response:', text);
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('Upload response was not valid JSON:', parseErr);
+      uploadStatus.textContent = 'Server error: response is not JSON. See console.';
+      return;
+    }
+
+    if (data.error) {
+      uploadStatus.textContent = 'Error: ' + data.error;
+      console.error('Upload error object:', data);
+      return;
+    }
+
+    uploadStatus.textContent =
+      `Uploaded and converted successfully. ${data.featureCount || 0} features.`;
+    if (data.stateCode === currentState) {
+      loadState(currentState);
+    }
+  } catch (e) {
+    console.error('Upload failed:', e);
+    uploadStatus.textContent = 'Upload failed (network or JavaScript error). See console.';
+  }
+}
+
+// ------------------- Leaflet basemap + overlay -------------------
+
+let leafletMap = null;
+let leafletPrecinctLayer = null;
+
+function initLeafletMap() {
+  if (leafletMap) return;
+  const div = document.getElementById('leafletMap');
+  if (!div) return;
+
+  leafletMap = L.map('leafletMap').setView([37.8, -96], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  }).addTo(leafletMap);
+}
+
+function updateLeafletOverlay(geojson) {
+  if (!geojson) return;
+  initLeafletMap();
+  if (!leafletMap) return;
+
+  if (leafletPrecinctLayer) {
+    leafletMap.removeLayer(leafletPrecinctLayer);
+    leafletPrecinctLayer = null;
+  }
+
+  leafletPrecinctLayer = L.geoJSON(geojson, {
+    style: feature => ({
+      color: '#555',
+      weight: 0.5,
+      fillColor: '#3388ff',
+      fillOpacity: 0.4,
+    }),
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties || {};
+      const lines = [];
+      if (p.id !== undefined) lines.push(`<b>ID:</b> ${p.id}`);
+      if (p.population !== undefined) lines.push(`<b>Population:</b> ${p.population}`);
+      if (p.dem !== undefined) lines.push(`<b>Dem:</b> ${p.dem}`);
+      if (p.rep !== undefined) lines.push(`<b>Rep:</b> ${p.rep}`);
+      if (lines.length) {
+        layer.bindPopup(lines.join('<br>'));
+      }
+    },
+  }).addTo(leafletMap);
+
+  try {
+    const bounds = leafletPrecinctLayer.getBounds();
+    if (bounds.isValid()) {
+      leafletMap.fitBounds(bounds, { padding: [20, 20] });
+    }
+  } catch (e) {
+    console.warn('Could not fit Leaflet bounds:', e);
+  }
+}
