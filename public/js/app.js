@@ -151,6 +151,56 @@ function attachEventHandlers() {
       updateColorLegend();
     });
   }
+
+  // Tab switching
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.getAttribute('data-tab');
+      
+      // Update button states
+      tabBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      // Update content visibility
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      const targetContent = document.getElementById('tab-' + tabId);
+      if (targetContent) {
+        targetContent.classList.add('active');
+      }
+    });
+  });
+
+  // RDH Direct Import handlers
+  const rdhListBtn = document.getElementById('rdhListBtn');
+  const rdhImportBtn = document.getElementById('rdhImportBtn');
+  
+  if (rdhListBtn) {
+    rdhListBtn.addEventListener('click', handleRDHListDatasets);
+  }
+  
+  if (rdhImportBtn) {
+    rdhImportBtn.addEventListener('click', handleRDHImport);
+  }
+
+  // Collapsible panel toggles
+  document.querySelectorAll('.panel.collapsible .panel-toggle').forEach(toggle => {
+    toggle.addEventListener('click', () => {
+      const panel = toggle.closest('.panel');
+      const content = panel.querySelector('.panel-content');
+      const icon = toggle.querySelector('.toggle-icon');
+      
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.textContent = '▼';
+      } else {
+        content.style.display = 'none';
+        icon.textContent = '▶';
+      }
+    });
+  });
 }
 
 /**
@@ -755,5 +805,237 @@ function updateLeafletOverlay(geojson) {
     }
   } catch (e) {
     console.warn('Could not fit Leaflet bounds:', e);
+  }
+}
+
+// ------------------- RDH Direct Import -------------------
+
+let rdhDatasets = [];
+
+async function handleRDHListDatasets() {
+  const rdhStatus = document.getElementById('rdhStatus');
+  const rdhDatasetList = document.getElementById('rdhDatasetList');
+  const rdhImportBtn = document.getElementById('rdhImportBtn');
+  const rdhProgressContainer = document.getElementById('rdhProgressContainer');
+  
+  const username = document.getElementById('rdhUsername')?.value?.trim();
+  const password = document.getElementById('rdhPassword')?.value?.trim();
+  const state = document.getElementById('rdhState')?.value?.trim();
+  
+  if (!username || !password || !state) {
+    if (rdhStatus) {
+      rdhStatus.textContent = 'Please fill in all fields (username, password, state).';
+      rdhStatus.className = 'status-message error';
+    }
+    return;
+  }
+  
+  if (rdhStatus) {
+    rdhStatus.textContent = 'Connecting to RDH API...';
+    rdhStatus.className = 'status-message info';
+  }
+  
+  if (rdhProgressContainer) {
+    rdhProgressContainer.className = 'upload-progress-container active';
+    document.getElementById('rdhProgressFill').style.width = '30%';
+    document.getElementById('rdhProgressText').textContent = 'Loading...';
+  }
+  
+  const formData = new FormData();
+  formData.append('action', 'list_datasets');
+  formData.append('rdh_username', username);
+  formData.append('rdh_password', password);
+  formData.append('state', state);
+  
+  try {
+    const res = await fetch('api/rdh_import.php', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const data = await res.json();
+    
+    if (rdhProgressContainer) {
+      document.getElementById('rdhProgressFill').style.width = '100%';
+      document.getElementById('rdhProgressText').textContent = '100%';
+    }
+    
+    if (!data.ok) {
+      if (rdhStatus) {
+        rdhStatus.textContent = 'Error: ' + (data.error || 'Unknown error');
+        rdhStatus.className = 'status-message error';
+      }
+      if (rdhProgressContainer) {
+        rdhProgressContainer.className = 'upload-progress-container active error';
+      }
+      return;
+    }
+    
+    rdhDatasets = data.datasets || [];
+    
+    // Build dataset list UI
+    let html = '';
+    
+    // Show recommended datasets first
+    if (data.recommended && data.recommended.length > 0) {
+      html += '<div class="dataset-section"><strong style="font-size:0.75rem;color:#16a34a;">Recommended:</strong>';
+      data.recommended.forEach(rec => {
+        const ds = rec.dataset;
+        html += `
+          <div class="dataset-item">
+            <input type="checkbox" value="${ds.id}" data-title="${ds.title}" checked>
+            <span class="dataset-title">${ds.title}</span>
+            <span class="dataset-format">${ds.format}</span>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+    
+    // Show all datasets
+    if (rdhDatasets.length > 0) {
+      html += `<div class="dataset-section" style="margin-top:0.5rem;"><strong style="font-size:0.75rem;color:#64748b;">All Datasets (${rdhDatasets.length}):</strong>`;
+      rdhDatasets.slice(0, 50).forEach(ds => {
+        html += `
+          <div class="dataset-item">
+            <input type="checkbox" value="${ds.id}" data-title="${ds.title}">
+            <span class="dataset-title">${ds.title}</span>
+            <span class="dataset-format">${ds.format}</span>
+          </div>
+        `;
+      });
+      if (rdhDatasets.length > 50) {
+        html += `<p style="font-size:0.75rem;color:#94a3b8;padding:0.5rem;">Showing first 50 of ${rdhDatasets.length} datasets</p>`;
+      }
+      html += '</div>';
+    }
+    
+    if (rdhDatasetList) {
+      rdhDatasetList.innerHTML = html;
+      rdhDatasetList.style.display = 'block';
+    }
+    
+    if (rdhImportBtn) {
+      rdhImportBtn.style.display = 'inline-block';
+    }
+    
+    if (rdhStatus) {
+      rdhStatus.textContent = `Found ${rdhDatasets.length} datasets for ${state}. Select datasets and click Import.`;
+      rdhStatus.className = 'status-message success';
+    }
+    
+    if (rdhProgressContainer) {
+      rdhProgressContainer.className = 'upload-progress-container active complete';
+    }
+    
+  } catch (e) {
+    console.error('RDH list datasets failed:', e);
+    if (rdhStatus) {
+      rdhStatus.textContent = 'Failed to connect to RDH API. ' + e.message;
+      rdhStatus.className = 'status-message error';
+    }
+    if (rdhProgressContainer) {
+      rdhProgressContainer.className = 'upload-progress-container active error';
+    }
+  }
+}
+
+async function handleRDHImport() {
+  const rdhStatus = document.getElementById('rdhStatus');
+  const rdhDatasetList = document.getElementById('rdhDatasetList');
+  const rdhProgressContainer = document.getElementById('rdhProgressContainer');
+  
+  const username = document.getElementById('rdhUsername')?.value?.trim();
+  const password = document.getElementById('rdhPassword')?.value?.trim();
+  const state = document.getElementById('rdhState')?.value?.trim();
+  
+  // Get selected datasets
+  const checkboxes = rdhDatasetList?.querySelectorAll('input[type="checkbox"]:checked');
+  const selectedIds = Array.from(checkboxes || []).map(cb => cb.value).filter(v => v);
+  
+  if (selectedIds.length === 0) {
+    if (rdhStatus) {
+      rdhStatus.textContent = 'Please select at least one dataset to import.';
+      rdhStatus.className = 'status-message error';
+    }
+    return;
+  }
+  
+  if (rdhStatus) {
+    rdhStatus.textContent = `Importing ${selectedIds.length} dataset(s)...`;
+    rdhStatus.className = 'status-message info';
+  }
+  
+  if (rdhProgressContainer) {
+    rdhProgressContainer.className = 'upload-progress-container active';
+    document.getElementById('rdhProgressFill').style.width = '10%';
+    document.getElementById('rdhProgressText').textContent = 'Starting...';
+  }
+  
+  const formData = new FormData();
+  formData.append('action', 'import');
+  formData.append('rdh_username', username);
+  formData.append('rdh_password', password);
+  formData.append('state', state);
+  formData.append('dataset_ids', selectedIds.join(','));
+  
+  try {
+    const res = await fetch('api/rdh_import.php', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const data = await res.json();
+    
+    if (rdhProgressContainer) {
+      document.getElementById('rdhProgressFill').style.width = '100%';
+      document.getElementById('rdhProgressText').textContent = '100%';
+    }
+    
+    if (!data.ok) {
+      if (rdhStatus) {
+        rdhStatus.textContent = 'Error: ' + (data.error || 'Import failed');
+        rdhStatus.className = 'status-message error';
+      }
+      if (rdhProgressContainer) {
+        rdhProgressContainer.className = 'upload-progress-container active error';
+      }
+      return;
+    }
+    
+    if (rdhStatus) {
+      rdhStatus.textContent = `Success! Imported ${data.imported}/${data.total} datasets. ${data.featureCount} features loaded.`;
+      rdhStatus.className = 'status-message success';
+    }
+    
+    if (rdhProgressContainer) {
+      rdhProgressContainer.className = 'upload-progress-container active complete';
+    }
+    
+    // Reload state if it matches
+    if (data.stateCode) {
+      // Refresh states list and try to load the imported state
+      await loadStatesList();
+      
+      // Try to select and load the state
+      const stateSelect = document.getElementById('stateSelect');
+      if (stateSelect) {
+        const option = stateSelect.querySelector(`option[value="${data.stateCode}"]`);
+        if (option) {
+          stateSelect.value = data.stateCode;
+          loadState(data.stateCode);
+        }
+      }
+    }
+    
+  } catch (e) {
+    console.error('RDH import failed:', e);
+    if (rdhStatus) {
+      rdhStatus.textContent = 'Import failed: ' + e.message;
+      rdhStatus.className = 'status-message error';
+    }
+    if (rdhProgressContainer) {
+      rdhProgressContainer.className = 'upload-progress-container active error';
+    }
   }
 }
