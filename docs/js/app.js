@@ -13,8 +13,6 @@ const newPlanBtn = document.getElementById('newPlanBtn');
 const savePlanBtn = document.getElementById('savePlanBtn');
 const existingPlansSelect = document.getElementById('existingPlans');
 const loadPlanBtn = document.getElementById('loadPlanBtn');
-const uploadForm = document.getElementById('uploadForm');
-const uploadStatus = document.getElementById('uploadStatus');
 const metricsPanel = document.getElementById('metricsPanel');
 const districtColorLegend = document.getElementById('districtColorLegend');
 
@@ -60,7 +58,7 @@ function attachEventHandlers() {
     createNewPlan();
   });
 
-  savePlanBtn.addEventListener('click', saveCurrentPlanToServer);
+  savePlanBtn.addEventListener('click', saveCurrentPlanToLocalStorage);
 
   loadPlanBtn.addEventListener('click', () => {
     const planId = existingPlansSelect.value;
@@ -68,98 +66,106 @@ function attachEventHandlers() {
       alert('Select a plan from the dropdown.');
       return;
     }
-    loadPlan(currentState, planId);
+    loadPlanFromStorage(currentState, planId);
   });
-
-  uploadForm.addEventListener('submit', handleUpload);
 }
 
 async function loadStatesList() {
   try {
-    const res = await fetch('api/list_states.php');
+    const res = await fetch('data/states.json');
     const data = await res.json();
-    if (data.error) {
-      console.error(data.error);
+    if (!data || !Array.isArray(data)) {
+      stateSelect.innerHTML = '<option value="">No states available</option>';
+      return;
     }
-    if (!data || !Array.isArray(data.states)) return;
 
     stateSelect.innerHTML = '<option value="">Select a state</option>';
-    data.states.forEach(st => {
+    data.forEach(st => {
       const opt = document.createElement('option');
-      opt.value = st.code || st.abbr; // two-letter code preferred
+      opt.value = st.abbr || st.code;
       opt.textContent = `${st.abbr || st.code} - ${st.name}`;
       stateSelect.appendChild(opt);
     });
   } catch (e) {
     console.error(e);
-    alert('Could not load states list. Check api/list_states.php and states.json.');
+    stateSelect.innerHTML = '<option value="">Error loading states</option>';
   }
 }
 
 async function loadState(stateCode) {
   try {
-    const res = await fetch(`api/load_state.php?state=${encodeURIComponent(stateCode)}`);
-    const data = await res.json();
-    if (data.error) {
-      alert(data.error);
+    const res = await fetch(`data/precincts/${stateCode}/precincts.geojson`);
+    if (!res.ok) {
+      alert(`No precinct data available for ${stateCode}. Upload data using the PHP version.`);
       return;
     }
-    // data.state.code should match e.g. "NC"
-    currentState = data.state.code;
-    currentStateMeta = data.state;
-    currentGeojson = data.precincts;
+    const geo = await res.json();
+    
+    currentState = stateCode;
+    currentStateMeta = { code: stateCode, abbr: stateCode, name: stateCode };
+    currentGeojson = geo;
     currentAssignments = {};
     currentPlan = null;
 
-    numDistricts = data.defaultNumDistricts || 10;
+    numDistricts = 10;
     numDistrictsInput.value = numDistricts;
 
     // Save the selected state to localStorage for auto-loading on next visit
     localStorage.setItem('lastSelectedState', stateCode);
 
-    await loadStatePlansList(currentState);
+    loadLocalPlansList(currentState);
 
     // Canvas engine
     setGeojson(currentGeojson, currentAssignments);
     renderDistrictLegend(numDistricts);
     recomputeMetrics();
 
-    // NEW: also update Leaflet basemap overlay
+    // Update Leaflet basemap overlay
     updateLeafletOverlay(currentGeojson);
   } catch (e) {
     console.error(e);
-    alert('Failed to load state data. Check api/load_state.php.');
+    alert('Failed to load state data.');
   }
 }
 
-async function loadStatePlansList(stateCode) {
+function loadLocalPlansList(stateCode) {
   existingPlansSelect.innerHTML = '';
-  try {
-    const res = await fetch(`api/load_plan.php?state=${encodeURIComponent(stateCode)}&list=1`);
-    const data = await res.json();
-    if (data.error) {
-      console.warn(data.error);
-    }
-    if (!data.plans) {
-      existingPlansSelect.innerHTML = '<option value="">(no saved plans)</option>';
-      return;
-    }
-    existingPlansSelect.innerHTML = '<option value="">Select a plan</option>';
-    data.plans.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.planId;
-      opt.textContent = p.name;
-      existingPlansSelect.appendChild(opt);
-    });
-  } catch (e) {
-    console.error(e);
+  const plans = getLocalPlansForState(stateCode);
+  if (plans.length === 0) {
+    existingPlansSelect.innerHTML = '<option value="">(no saved plans)</option>';
+    return;
   }
+  existingPlansSelect.innerHTML = '<option value="">Select a plan</option>';
+  plans.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.planId;
+    opt.textContent = p.name;
+    existingPlansSelect.appendChild(opt);
+  });
+}
+
+function getLocalPlansForState(stateCode) {
+  const plans = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key.startsWith(`plan_${stateCode}_`)) {
+      try {
+        const plan = JSON.parse(localStorage.getItem(key));
+        if (plan && plan.planId) {
+          plans.push({ planId: plan.planId, name: plan.name || 'Untitled' });
+        }
+      } catch (e) {
+        // skip invalid entries
+      }
+    }
+  }
+  return plans;
 }
 
 function createNewPlan() {
   currentPlan = {
     state: currentState,
-    planId: null,
+    planId: 'plan_' + Date.now(),
     name: planNameInput.value || 'Untitled Plan',
     numDistricts: numDistricts,
     assignments: {},
@@ -170,27 +176,21 @@ function createNewPlan() {
   redrawMap();
 }
 
-async function loadPlan(stateCode, planId) {
-  try {
-    const res = await fetch(`api/load_plan.php?state=${encodeURIComponent(stateCode)}&planId=${encodeURIComponent(planId)}`);
-    const data = await res.json();
-    if (data.error) {
-      alert(data.error);
-      return;
-    }
-    currentPlan = data.plan;
-    currentAssignments = currentPlan.assignments || {};
-    numDistricts = currentPlan.numDistricts || numDistricts;
-    numDistrictsInput.value = numDistricts;
-
-    planNameInput.value = currentPlan.name || '';
-    renderDistrictLegend(numDistricts);
-    recomputeMetrics();
-    redrawMap();
-  } catch (e) {
-    console.error(e);
-    alert('Could not load plan. Check api/load_plan.php and file permissions.');
+function loadPlanFromStorage(stateCode, planId) {
+  const plan = loadPlanFromLocalStorage(stateCode, planId);
+  if (!plan) {
+    alert('Could not load plan from local storage.');
+    return;
   }
+  currentPlan = plan;
+  currentAssignments = currentPlan.assignments || {};
+  numDistricts = currentPlan.numDistricts || numDistricts;
+  numDistrictsInput.value = numDistricts;
+
+  planNameInput.value = currentPlan.name || '';
+  renderDistrictLegend(numDistricts);
+  recomputeMetrics();
+  redrawMap();
 }
 
 function handlePrecinctClick(precinctId, buttonMode) {
@@ -213,7 +213,6 @@ function handlePrecinctClick(precinctId, buttonMode) {
 }
 
 function pickCurrentDistrictForUser() {
-  // For now, always district 1.
   return 1;
 }
 
@@ -259,7 +258,7 @@ function renderDistrictLegend(n) {
   }
 }
 
-async function saveCurrentPlanToServer() {
+async function saveCurrentPlanToLocalStorage() {
   if (!currentState) {
     alert('Select a state first.');
     return;
@@ -272,24 +271,9 @@ async function saveCurrentPlanToServer() {
   currentPlan.assignments = currentAssignments;
   currentPlan.metrics = await computeMetricsLocally(currentGeojson, currentAssignments, numDistricts);
 
-  try {
-    const res = await fetch('api/save_plan.php', {
-      method: 'POST',
-      body: JSON.stringify(currentPlan),
-      headers: { 'Content-Type': 'application/json' }
-    });
-    const data = await res.json();
-    if (data.error) {
-      alert(data.error);
-      return;
-    }
-    currentPlan.planId = data.planId;
-    alert('Plan saved.');
-    await loadStatePlansList(currentState);
-  } catch (e) {
-    console.error(e);
-    alert('Could not save plan. Check api/save_plan.php and file permissions.');
-  }
+  savePlanToLocalStorage(currentPlan);
+  alert('Plan saved to local storage.');
+  loadLocalPlansList(currentState);
 }
 
 function recomputeMetrics() {
@@ -341,45 +325,6 @@ function renderMetrics(metrics) {
       <tbody>${rows}</tbody>
     </table>
   `;
-}
-
-async function handleUpload(e) {
-  e.preventDefault();
-  uploadStatus.textContent = 'Uploading...';
-  const formData = new FormData(uploadForm);
-  try {
-    const res = await fetch('api/upload_precincts.php', {
-      method: 'POST',
-      body: formData
-    });
-
-    const text = await res.text();
-    console.log('upload_precincts.php raw response:', text);
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (parseErr) {
-      console.error('Upload response was not valid JSON:', parseErr);
-      uploadStatus.textContent = 'Server error: response is not JSON. See console.';
-      return;
-    }
-
-    if (data.error) {
-      uploadStatus.textContent = 'Error: ' + data.error;
-      console.error('Upload error object:', data);
-      return;
-    }
-
-    uploadStatus.textContent =
-      `Uploaded and converted successfully. ${data.featureCount || 0} features.`;
-    if (data.stateCode === currentState) {
-      loadState(currentState);
-    }
-  } catch (e) {
-    console.error('Upload failed:', e);
-    uploadStatus.textContent = 'Upload failed (network or JavaScript error). See console.';
-  }
 }
 
 // ------------------- Leaflet basemap + overlay -------------------
