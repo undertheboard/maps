@@ -1,0 +1,6 @@
+# Runtime data (user uploads and plans)
+data/plans/
+data/tmp_shapefiles/
+
+# Keep sample precincts data for demo purposes
+# The NC sample is needed for demonstration

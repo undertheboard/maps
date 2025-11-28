@@ -185,6 +185,12 @@ function lonLatToScreen(lon, lat) {
 function redrawMap() {
   if (!canvas || !ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Also refresh Leaflet styles if the function exists
+  if (typeof refreshLeafletStyles === 'function') {
+    refreshLeafletStyles();
+  }
+  
   if (!geojsonData || !geojsonData.features) return;
 
   const districtColors = getDistrictColors(50);

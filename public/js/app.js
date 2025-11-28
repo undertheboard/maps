@@ -778,23 +778,89 @@ function updateLeafletOverlay(geojson) {
     leafletPrecinctLayer = null;
   }
 
+  const districtColors = getDistrictColors(numDistricts);
+  const colorMode = typeof getDisplayOptions === 'function' ? getDisplayOptions().colorMode : 'district_set';
+
   leafletPrecinctLayer = L.geoJSON(geojson, {
-    style: feature => ({
-      color: '#555',
-      weight: 0.5,
-      fillColor: '#3388ff',
-      fillOpacity: 0.4,
-    }),
-    onEachFeature: (feature, layer) => {
-      const p = feature.properties || {};
-      const lines = [];
-      if (p.id !== undefined) lines.push(`<b>ID:</b> ${p.id}`);
-      if (p.population !== undefined) lines.push(`<b>Population:</b> ${p.population}`);
-      if (p.dem !== undefined) lines.push(`<b>Dem:</b> ${p.dem}`);
-      if (p.rep !== undefined) lines.push(`<b>Rep:</b> ${p.rep}`);
-      if (lines.length) {
-        layer.bindPopup(lines.join('<br>'));
+    style: feature => {
+      const props = feature.properties || {};
+      const precinctId = props.id || props.precinct_id;
+      const district = currentAssignments && precinctId ? currentAssignments[precinctId] : null;
+      
+      let fillColor = '#ffffff';
+      
+      if (colorMode === 'precinct_lean') {
+        // Color by precinct's own partisan lean
+        const dem = Number(props.dem || props.dem_votes || 0);
+        const rep = Number(props.rep || props.rep_votes || 0);
+        const total = dem + rep;
+        if (total > 0) {
+          const demShare = dem / total;
+          fillColor = typeof getPartisanLeanColor === 'function' ? getPartisanLeanColor(demShare) : '#3388ff';
+        } else {
+          fillColor = '#e5e7eb';
+        }
+      } else if (district && districtColors[district]) {
+        fillColor = districtColors[district];
       }
+      
+      return {
+        color: '#374151',
+        weight: 1,
+        fillColor: fillColor,
+        fillOpacity: 0.7,
+      };
+    },
+    onEachFeature: (feature, layer) => {
+      const props = feature.properties || {};
+      const precinctId = props.id || props.precinct_id;
+      
+      // Add click handler
+      layer.on('click', (e) => {
+        if (precinctId) {
+          handlePrecinctClick(precinctId, 'single');
+          // Update the layer style after click
+          refreshLeafletStyles();
+        }
+      });
+      
+      // Add hover handler
+      layer.on('mouseover', (e) => {
+        const hoverInfo = document.getElementById('hoverInfo');
+        if (hoverInfo) {
+          const pop = props.population ?? 'N/A';
+          const dem = props.dem ?? 'N/A';
+          const rep = props.rep ?? 'N/A';
+          const id = precinctId || '(no id)';
+          const assigned = currentAssignments[id] ?? 'Unassigned';
+
+          hoverInfo.innerHTML = `
+            <strong>Precinct: ${id}</strong><br>
+            District: ${assigned}<br>
+            Population: ${pop}<br>
+            Dem votes: ${dem}<br>
+            Rep votes: ${rep}
+          `;
+          hoverInfo.style.left = (e.containerPoint.x + 10) + 'px';
+          hoverInfo.style.top = (e.containerPoint.y + 10) + 'px';
+          hoverInfo.style.display = 'block';
+        }
+        
+        // Highlight the precinct
+        layer.setStyle({
+          weight: 3,
+          color: '#1f2937'
+        });
+      });
+      
+      layer.on('mouseout', (e) => {
+        const hoverInfo = document.getElementById('hoverInfo');
+        if (hoverInfo) {
+          hoverInfo.style.display = 'none';
+        }
+        // Reset style
+        leafletPrecinctLayer.resetStyle(layer);
+      });
     },
   }).addTo(leafletMap);
 
@@ -807,6 +873,51 @@ function updateLeafletOverlay(geojson) {
     console.warn('Could not fit Leaflet bounds:', e);
   }
 }
+
+/**
+ * Refresh Leaflet layer styles after assignment changes
+ */
+function refreshLeafletStyles() {
+  if (!leafletPrecinctLayer || !currentGeojson) return;
+  
+  const districtColors = getDistrictColors(numDistricts);
+  const colorMode = typeof getDisplayOptions === 'function' ? getDisplayOptions().colorMode : 'district_set';
+  
+  leafletPrecinctLayer.eachLayer(layer => {
+    const feature = layer.feature;
+    if (!feature) return;
+    
+    const props = feature.properties || {};
+    const precinctId = props.id || props.precinct_id;
+    const district = currentAssignments && precinctId ? currentAssignments[precinctId] : null;
+    
+    let fillColor = '#ffffff';
+    
+    if (colorMode === 'precinct_lean') {
+      const dem = Number(props.dem || props.dem_votes || 0);
+      const rep = Number(props.rep || props.rep_votes || 0);
+      const total = dem + rep;
+      if (total > 0) {
+        const demShare = dem / total;
+        fillColor = typeof getPartisanLeanColor === 'function' ? getPartisanLeanColor(demShare) : '#3388ff';
+      } else {
+        fillColor = '#e5e7eb';
+      }
+    } else if (district && districtColors[district]) {
+      fillColor = districtColors[district];
+    }
+    
+    layer.setStyle({
+      color: '#374151',
+      weight: 1,
+      fillColor: fillColor,
+      fillOpacity: 0.7,
+    });
+  });
+}
+
+// Make refreshLeafletStyles globally available
+window.refreshLeafletStyles = refreshLeafletStyles;
 
 // ------------------- RDH Direct Import -------------------
 
