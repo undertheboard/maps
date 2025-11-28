@@ -50,8 +50,37 @@
 
 header('Content-Type: application/json');
 
-// Increase memory for large files
-ini_set('memory_limit', '1024M');
+// Increase memory for large files - try to increase dynamically
+$currentLimit = ini_get('memory_limit');
+$currentBytes = return_bytes($currentLimit);
+$desiredLimit = '2048M';
+$desiredBytes = return_bytes($desiredLimit);
+
+if ($currentBytes < $desiredBytes) {
+    @ini_set('memory_limit', $desiredLimit);
+}
+
+// Increase execution time for large files
+@set_time_limit(300);
+
+/**
+ * Convert memory limit string to bytes
+ */
+function return_bytes($val) {
+    $val = trim($val);
+    $last = strtolower($val[strlen($val)-1]);
+    $val = (int)$val;
+    switch($last) {
+        case 'g': $val *= 1024 * 1024 * 1024; break;
+        case 'm': $val *= 1024 * 1024; break;
+        case 'k': $val *= 1024; break;
+    }
+    return $val;
+}
+
+// Constants for streaming large files
+define('CHUNK_SIZE', 65536); // 64KB chunks
+define('MAX_BUFFER_SIZE', 10 * 1024 * 1024); // 10MB max buffer
 
 // Error handling
 ini_set('display_errors', 1);
@@ -155,6 +184,7 @@ switch ($importType) {
 
 /**
  * Handle direct GeoJSON file import
+ * Uses streaming to handle large files without exhausting memory
  * @param bool $isRDH Whether to use Redistricting Data Hub field mappings
  */
 function handleGeoJSONImport(string $stateCode, string $targetDir, array $fieldMapping, bool $isRDH): void
@@ -163,18 +193,37 @@ function handleGeoJSONImport(string $stateCode, string $targetDir, array $fieldM
     if (!isset($_FILES['geojson_file']) || $_FILES['geojson_file']['error'] !== UPLOAD_ERR_OK) {
         $errorMsg = 'File upload failed.';
         if (isset($_FILES['geojson_file']['error'])) {
-            $errorMsg .= ' Error code: ' . $_FILES['geojson_file']['error'];
+            $errorCode = $_FILES['geojson_file']['error'];
+            $errorMessages = [
+                UPLOAD_ERR_INI_SIZE   => 'File exceeds upload_max_filesize',
+                UPLOAD_ERR_FORM_SIZE  => 'File exceeds MAX_FILE_SIZE',
+                UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded',
+                UPLOAD_ERR_NO_FILE    => 'No file was uploaded',
+                UPLOAD_ERR_NO_TMP_DIR => 'Missing temp folder',
+                UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
+                UPLOAD_ERR_EXTENSION  => 'Upload stopped by extension',
+            ];
+            $errorMsg .= ' ' . ($errorMessages[$errorCode] ?? "Error code: $errorCode");
         }
         echo json_encode(['ok' => false, 'error' => $errorMsg]);
         exit;
     }
 
     $tmpFile = $_FILES['geojson_file']['tmp_name'];
+    $fileSize = filesize($tmpFile);
     
     // For RDH imports, use UNIQUE_ID or GEOID20 as the default ID field
     $idField = trim($_POST['id_field'] ?? ($isRDH ? 'UNIQUE_ID' : 'id'));
     
-    // Validate the file is valid JSON
+    // For very large files (>50MB), use streaming approach
+    $largeFileThreshold = 50 * 1024 * 1024; // 50MB
+    
+    if ($fileSize > $largeFileThreshold) {
+        handleLargeGeoJSONImport($tmpFile, $stateCode, $targetDir, $fieldMapping, $isRDH, $idField);
+        return;
+    }
+    
+    // Standard approach for smaller files
     $content = file_get_contents($tmpFile);
     if ($content === false) {
         echo json_encode(['ok' => false, 'error' => 'Failed to read uploaded file.']);
@@ -182,6 +231,9 @@ function handleGeoJSONImport(string $stateCode, string $targetDir, array $fieldM
     }
 
     $geojson = json_decode($content, true);
+    // Free memory immediately
+    unset($content);
+    
     if (json_last_error() !== JSON_ERROR_NONE) {
         echo json_encode([
             'ok'    => false,
@@ -210,10 +262,19 @@ function handleGeoJSONImport(string $stateCode, string $targetDir, array $fieldM
         exit;
     }
 
-    // Process and normalize features
-    $processedFeatures = [];
+    // Write output file using streaming to avoid holding all processed features in memory
+    $outputPath = $targetDir . '/precincts.geojson';
+    $outFp = fopen($outputPath, 'wb');
+    if ($outFp === false) {
+        echo json_encode(['ok' => false, 'error' => 'Failed to open output file for writing.']);
+        exit;
+    }
+    
+    fwrite($outFp, '{"type":"FeatureCollection","features":[');
+    
     $featureCount = 0;
     $warnings = [];
+    $first = true;
 
     foreach ($geojson['features'] as $index => $feature) {
         if (!isset($feature['type']) || $feature['type'] !== 'Feature') {
@@ -231,39 +292,183 @@ function handleGeoJSONImport(string $stateCode, string $targetDir, array $fieldM
         // Normalize properties (with RDH support if enabled)
         $normalizedProps = normalizeProperties($props, $index, $idField, $fieldMapping, $isRDH);
         
-        $processedFeatures[] = [
+        $processedFeature = [
             'type'       => 'Feature',
             'properties' => $normalizedProps,
             'geometry'   => $feature['geometry'],
         ];
         
+        $featureJson = json_encode($processedFeature, JSON_UNESCAPED_UNICODE);
+        if ($featureJson === false) {
+            continue;
+        }
+        
+        if (!$first) {
+            fwrite($outFp, ',');
+        }
+        $first = false;
+        
+        fwrite($outFp, $featureJson);
         $featureCount++;
+        
+        // Free memory periodically
+        unset($processedFeature, $featureJson);
     }
+    
+    // Free the original data
+    unset($geojson);
+    
+    fwrite($outFp, ']}');
+    fclose($outFp);
 
     if ($featureCount === 0) {
+        unlink($outputPath);
         echo json_encode(['ok' => false, 'error' => 'No valid features found in GeoJSON.']);
-        exit;
-    }
-
-    // Write output file
-    $outputPath = $targetDir . '/precincts.geojson';
-    $outputData = [
-        'type'     => 'FeatureCollection',
-        'features' => $processedFeatures,
-    ];
-
-    $written = file_put_contents($outputPath, json_encode($outputData, JSON_UNESCAPED_UNICODE));
-    if ($written === false) {
-        echo json_encode(['ok' => false, 'error' => 'Failed to write output file.']);
         exit;
     }
 
     echo json_encode([
         'ok'           => true,
         'stateCode'    => $stateCode,
-        'importType'   => 'geojson',
+        'importType'   => $isRDH ? 'rdh_geojson' : 'geojson',
         'featureCount' => $featureCount,
-        'warnings'     => $warnings,
+        'warnings'     => array_slice($warnings, 0, 10), // Limit warnings to first 10
+        'warningCount' => count($warnings),
+    ]);
+}
+
+/**
+ * Handle very large GeoJSON files using streaming JSON parser
+ */
+function handleLargeGeoJSONImport(string $tmpFile, string $stateCode, string $targetDir, array $fieldMapping, bool $isRDH, string $idField): void
+{
+    $outputPath = $targetDir . '/precincts.geojson';
+    $outFp = fopen($outputPath, 'wb');
+    if ($outFp === false) {
+        echo json_encode(['ok' => false, 'error' => 'Failed to open output file for writing.']);
+        exit;
+    }
+    
+    fwrite($outFp, '{"type":"FeatureCollection","features":[');
+    
+    // Read file in chunks and parse features
+    $inFp = fopen($tmpFile, 'r');
+    if ($inFp === false) {
+        fclose($outFp);
+        echo json_encode(['ok' => false, 'error' => 'Failed to open uploaded file.']);
+        exit;
+    }
+    
+    $featureCount = 0;
+    $warnings = [];
+    $first = true;
+    $buffer = '';
+    $inFeatures = false;
+    $braceCount = 0;
+    $featureStart = -1;
+    
+    while (!feof($inFp)) {
+        $chunk = fread($inFp, CHUNK_SIZE);
+        $buffer .= $chunk;
+        
+        // Look for the features array start
+        if (!$inFeatures) {
+            $featuresPos = strpos($buffer, '"features"');
+            if ($featuresPos !== false) {
+                $arrayStart = strpos($buffer, '[', $featuresPos);
+                if ($arrayStart !== false) {
+                    $inFeatures = true;
+                    $buffer = substr($buffer, $arrayStart + 1);
+                }
+            }
+            continue;
+        }
+        
+        // Parse features from buffer
+        $i = 0;
+        $len = strlen($buffer);
+        
+        while ($i < $len) {
+            $char = $buffer[$i];
+            
+            if ($char === '{' && $featureStart === -1) {
+                $featureStart = $i;
+                $braceCount = 1;
+            } elseif ($featureStart !== -1) {
+                if ($char === '{') {
+                    $braceCount++;
+                } elseif ($char === '}') {
+                    $braceCount--;
+                    
+                    if ($braceCount === 0) {
+                        // Found complete feature
+                        $featureStr = substr($buffer, $featureStart, $i - $featureStart + 1);
+                        $feature = json_decode($featureStr, true);
+                        
+                        if (is_array($feature) && isset($feature['type']) && $feature['type'] === 'Feature') {
+                            if (isset($feature['geometry']) && is_array($feature['geometry'])) {
+                                $props = $feature['properties'] ?? [];
+                                $normalizedProps = normalizeProperties($props, $featureCount, $idField, $fieldMapping, $isRDH);
+                                
+                                $processedFeature = [
+                                    'type'       => 'Feature',
+                                    'properties' => $normalizedProps,
+                                    'geometry'   => $feature['geometry'],
+                                ];
+                                
+                                $featureJson = json_encode($processedFeature, JSON_UNESCAPED_UNICODE);
+                                if ($featureJson !== false) {
+                                    if (!$first) {
+                                        fwrite($outFp, ',');
+                                    }
+                                    $first = false;
+                                    fwrite($outFp, $featureJson);
+                                    $featureCount++;
+                                }
+                            }
+                        }
+                        
+                        $buffer = substr($buffer, $i + 1);
+                        $len = strlen($buffer);
+                        $i = -1;
+                        $featureStart = -1;
+                    }
+                }
+            }
+            
+            $i++;
+        }
+        
+        // Keep only the unprocessed part of buffer
+        if ($featureStart !== -1 && $featureStart > 0) {
+            $buffer = substr($buffer, $featureStart);
+            $featureStart = 0;
+        }
+        
+        // Prevent buffer from growing too large
+        if (strlen($buffer) > MAX_BUFFER_SIZE && $featureStart === -1) {
+            $buffer = '';
+        }
+    }
+    
+    fclose($inFp);
+    fwrite($outFp, ']}');
+    fclose($outFp);
+    
+    if ($featureCount === 0) {
+        unlink($outputPath);
+        echo json_encode(['ok' => false, 'error' => 'No valid features found in GeoJSON. The file may be too large or malformed.']);
+        exit;
+    }
+    
+    echo json_encode([
+        'ok'           => true,
+        'stateCode'    => $stateCode,
+        'importType'   => $isRDH ? 'rdh_geojson' : 'geojson',
+        'featureCount' => $featureCount,
+        'warnings'     => array_slice($warnings, 0, 10),
+        'warningCount' => count($warnings),
+        'streamingUsed' => true,
     ]);
 }
 
