@@ -18,6 +18,14 @@ const uploadStatus = document.getElementById('uploadStatus');
 const metricsPanel = document.getElementById('metricsPanel');
 const districtColorLegend = document.getElementById('districtColorLegend');
 
+// Enhanced import form elements
+const enhancedImportForm = document.getElementById('enhancedImportForm');
+const importTypeSelect = document.getElementById('importType');
+const importStatus = document.getElementById('importStatus');
+const geojsonImportOptions = document.getElementById('geojsonImportOptions');
+const csvImportOptions = document.getElementById('csvImportOptions');
+const rdhInfo = document.getElementById('rdhInfo');
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize the Leaflet basemap immediately so the map is visible
   initLeafletMap();
@@ -72,6 +80,30 @@ function attachEventHandlers() {
   });
 
   uploadForm.addEventListener('submit', handleUpload);
+
+  // Enhanced import form handlers
+  if (importTypeSelect) {
+    importTypeSelect.addEventListener('change', () => {
+      const type = importTypeSelect.value;
+      const isGeoJSON = type === 'geojson' || type === 'rdh_geojson';
+      const isCSV = type === 'csv_merge' || type === 'rdh_csv';
+      const isRDH = type === 'rdh_geojson' || type === 'rdh_csv';
+      
+      if (geojsonImportOptions) {
+        geojsonImportOptions.style.display = isGeoJSON ? 'block' : 'none';
+      }
+      if (csvImportOptions) {
+        csvImportOptions.style.display = isCSV ? 'block' : 'none';
+      }
+      if (rdhInfo) {
+        rdhInfo.style.display = isRDH ? 'block' : 'none';
+      }
+    });
+  }
+
+  if (enhancedImportForm) {
+    enhancedImportForm.addEventListener('submit', handleEnhancedImport);
+  }
 }
 
 async function loadStatesList() {
@@ -379,6 +411,64 @@ async function handleUpload(e) {
   } catch (e) {
     console.error('Upload failed:', e);
     uploadStatus.textContent = 'Upload failed (network or JavaScript error). See console.';
+  }
+}
+
+async function handleEnhancedImport(e) {
+  e.preventDefault();
+  if (!importStatus) return;
+  
+  importStatus.textContent = 'Importing...';
+  const formData = new FormData(enhancedImportForm);
+  
+  try {
+    const res = await fetch('api/import_data.php', {
+      method: 'POST',
+      body: formData
+    });
+
+    const text = await res.text();
+    console.log('import_data.php raw response:', text);
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('Import response was not valid JSON:', parseErr);
+      importStatus.textContent = 'Server error: response is not JSON. See console.';
+      return;
+    }
+
+    if (!data.ok) {
+      importStatus.textContent = 'Error: ' + (data.error || 'Unknown error');
+      console.error('Import error object:', data);
+      return;
+    }
+
+    // Build success message based on import type
+    let successMsg = 'Import successful. ';
+    if (data.importType === 'geojson') {
+      successMsg += `${data.featureCount || 0} features imported.`;
+      if (data.warnings && data.warnings.length > 0) {
+        successMsg += ` Warnings: ${data.warnings.length}`;
+        console.warn('Import warnings:', data.warnings);
+      }
+    } else if (data.importType === 'csv_merge') {
+      successMsg += `${data.matchCount || 0} features matched. ${data.unmatchedCount || 0} unmatched.`;
+    }
+    
+    importStatus.textContent = successMsg;
+    
+    // Reload state data if we just imported data for the current state
+    if (data.stateCode === currentState) {
+      loadState(currentState);
+    }
+    
+    // Refresh states list in case a new state was added
+    await loadStatesList();
+  } catch (e) {
+    console.error('Import failed:', e);
+    importStatus.textContent = 'Import failed (network or JavaScript error). See console.';
   }
 }
 

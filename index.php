@@ -88,6 +88,66 @@ if (!file_exists($statesFile) || !is_dir($dataDir . '/precincts') || !is_dir($da
       </form>
       <div id="uploadStatus"></div>
 
+      <h3>Enhanced Data Import</h3>
+      <p style="font-size:0.85rem;">
+        Import precinct data directly from GeoJSON or merge CSV data.
+        <strong>Includes built-in support for Redistricting Data Hub files!</strong>
+      </p>
+      <form id="enhancedImportForm" enctype="multipart/form-data">
+        <label for="importState">State (FIPS or code):</label>
+        <input type="text" id="importState" name="state" placeholder="NC or 37" required>
+
+        <label for="importType">Import Type:</label>
+        <select id="importType" name="import_type" required>
+          <option value="">Select import type</option>
+          <optgroup label="Standard Import">
+            <option value="geojson">GeoJSON File</option>
+            <option value="csv_merge">CSV Merge (with existing GeoJSON)</option>
+          </optgroup>
+          <optgroup label="Redistricting Data Hub">
+            <option value="rdh_geojson">RDH GeoJSON (auto-maps fields)</option>
+            <option value="rdh_csv">RDH CSV Merge (auto-maps fields)</option>
+          </optgroup>
+        </select>
+
+        <div id="geojsonImportOptions" style="display:none;">
+          <label for="geojsonFile">GeoJSON File:</label>
+          <input type="file" id="geojsonFile" name="geojson_file" accept=".geojson,.json">
+          
+          <label for="idField">ID Field (optional):</label>
+          <input type="text" id="idField" name="id_field" placeholder="id">
+        </div>
+
+        <div id="csvImportOptions" style="display:none;">
+          <label for="csvFile">CSV File:</label>
+          <input type="file" id="csvFile" name="csv_file" accept=".csv">
+          
+          <label for="joinField">Join Field in GeoJSON:</label>
+          <input type="text" id="joinField" name="join_field" placeholder="id">
+          
+          <label for="csvKeyColumn">CSV Key Column:</label>
+          <input type="text" id="csvKeyColumn" name="csv_key_column" placeholder="id">
+        </div>
+
+        <div id="rdhInfo" style="display:none;margin-top:0.5rem;padding:0.5rem;background:#e0f2fe;border-radius:4px;font-size:0.75rem;">
+          <strong>RDH Auto-Mapping:</strong> Fields like UNIQUE_ID, GEOID20, TOTPOP, VAP, 
+          G20PREDBID, G20PRERTRU are automatically recognized and mapped.
+        </div>
+
+        <details style="margin-top:0.5rem;">
+          <summary style="cursor:pointer;font-size:0.85rem;">Advanced: Field Mapping</summary>
+          <p style="font-size:0.75rem;margin:0.25rem 0;">
+            JSON mapping from source field names to target field names.
+          </p>
+          <textarea id="fieldMapping" name="field_mapping" rows="3" 
+            placeholder='{"PRECINCT_NAME": "name", "TOTAL_POP": "population"}'
+            style="width:100%;font-size:0.75rem;"></textarea>
+        </details>
+
+        <button type="submit" style="margin-top:0.5rem;">Import Data</button>
+      </form>
+      <div id="importStatus"></div>
+
       <h3>System Status</h3>
       <p style="font-size:0.8rem;">
         If something isn’t working, run the <a href="setup.php" target="_blank">Setup & Diagnostics</a>.
