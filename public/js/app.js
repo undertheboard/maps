@@ -33,6 +33,12 @@ const customTargetInput = document.getElementById('customTarget');
 const automapBtn = document.getElementById('automapBtn');
 const automapStatus = document.getElementById('automapStatus');
 
+// Display options elements
+const showCountyBordersCheckbox = document.getElementById('showCountyBorders');
+const showPrecinctLinesCheckbox = document.getElementById('showPrecinctLines');
+const colorModeSelect = document.getElementById('colorMode');
+const colorLegendDiv = document.getElementById('colorLegend');
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize the Leaflet basemap immediately so the map is visible
   initLeafletMap();
@@ -41,6 +47,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   attachEventHandlers();
   // Initialize your existing canvas-based map
   initMapCanvas(handlePrecinctClick, handleHoverPrecinct);
+  
+  // Initialize color legend
+  updateColorLegend();
   
   // Auto-load the last selected state if available
   const lastState = localStorage.getItem('lastSelectedState');
@@ -122,6 +131,66 @@ function attachEventHandlers() {
   if (automapBtn) {
     automapBtn.addEventListener('click', handleAutomap);
   }
+
+  // Display options event handlers
+  if (showCountyBordersCheckbox) {
+    showCountyBordersCheckbox.addEventListener('change', () => {
+      setDisplayOptions({ showCountyBorders: showCountyBordersCheckbox.checked });
+    });
+  }
+
+  if (showPrecinctLinesCheckbox) {
+    showPrecinctLinesCheckbox.addEventListener('change', () => {
+      setDisplayOptions({ showPrecinctLines: showPrecinctLinesCheckbox.checked });
+    });
+  }
+
+  if (colorModeSelect) {
+    colorModeSelect.addEventListener('change', () => {
+      setDisplayOptions({ colorMode: colorModeSelect.value });
+      updateColorLegend();
+    });
+  }
+}
+
+/**
+ * Update color legend based on current color mode
+ */
+function updateColorLegend() {
+  if (!colorLegendDiv) return;
+  
+  const colorMode = colorModeSelect ? colorModeSelect.value : 'district_set';
+  
+  if (colorMode === 'district_set') {
+    colorLegendDiv.innerHTML = '<p style="font-size:0.75rem;color:#6b7280;">Colors assigned by district number.</p>';
+    return;
+  }
+  
+  // Show partisan lean legend
+  const legendItems = [
+    { label: 'Safe D (15%+)', color: '#1d4ed8' },
+    { label: 'Strong D (10-15%)', color: '#2563eb' },
+    { label: 'Likely D (5-10%)', color: '#3b82f6' },
+    { label: 'Lean D (3-5%)', color: '#60a5fa' },
+    { label: 'Slight D (1-3%)', color: '#93c5fd' },
+    { label: 'Tossup (±1%)', color: '#fef08a' },
+    { label: 'Slight R (1-3%)', color: '#fca5a5' },
+    { label: 'Lean R (3-5%)', color: '#f87171' },
+    { label: 'Likely R (5-10%)', color: '#ef4444' },
+    { label: 'Strong R (10-15%)', color: '#dc2626' },
+    { label: 'Safe R (15%+)', color: '#b91c1c' }
+  ];
+  
+  let html = '<div class="partisan-legend">';
+  legendItems.forEach(item => {
+    html += `<div class="legend-row">
+      <span class="legend-swatch" style="background:${item.color};"></span>
+      <span class="legend-label">${item.label}</span>
+    </div>`;
+  });
+  html += '</div>';
+  
+  colorLegendDiv.innerHTML = html;
 }
 
 async function loadStatesList() {
@@ -513,7 +582,7 @@ function handleAutomap() {
   let customTargetDemShare = null;
   
   if (useCustomTargetCheckbox && useCustomTargetCheckbox.checked && customTargetInput) {
-    customTargetDemShare = parseInt(customTargetInput.value, 10) / 100;
+    customTargetDemShare = parseFloat(customTargetInput.value) / 100;
     if (isNaN(customTargetDemShare) || customTargetDemShare < 0 || customTargetDemShare > 1) {
       customTargetDemShare = null;
     }

@@ -241,3 +241,53 @@ button:hover {
   padding: 0.25rem;
   border-radius: 3px;
 }
+
+/* Display options */
+.display-options {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.display-options label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.display-options select {
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
+/* Partisan color legend */
+.color-legend {
+  margin-top: 0.5rem;
+}
+
+.partisan-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid #d1d5db;
+  flex-shrink: 0;
+}
+
+.legend-label {
+  color: #4b5563;
+}

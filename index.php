@@ -91,6 +91,27 @@ if (!file_exists($statesFile) || !is_dir($dataDir . '/precincts') || !is_dir($da
       <h3>District Colors</h3>
       <div id="districtColorLegend"></div>
 
+      <h3>Display Options</h3>
+      <div class="display-options">
+        <label>
+          <input type="checkbox" id="showCountyBorders"> Show County Borders
+        </label>
+        <label>
+          <input type="checkbox" id="showPrecinctLines" checked> Show Precinct Lines
+        </label>
+        
+        <label for="colorMode" style="margin-top:0.3rem;">Color Mode:</label>
+        <select id="colorMode">
+          <option value="district_set">District Set Color</option>
+          <option value="district_lean">District Partisan Lean</option>
+          <option value="precinct_lean">Precinct Partisan Lean</option>
+        </select>
+        
+        <div id="colorLegend" class="color-legend">
+          <!-- Legend will be populated by JavaScript -->
+        </div>
+      </div>
+
       <h3>Metrics</h3>
       <div id="metricsPanel">
         <p>Select a state and start assigning precincts to see metrics.</p>
