@@ -106,11 +106,13 @@ function handleKeyboardShortcut(e) {
     return;
   }
   
-  // 0 key selects district 10
-  if (key === '0' && numDistricts >= 10) {
-    setSelectedDistrict(10);
-    const assignRadio = document.querySelector('input[name="drawMode"][value="assign"]');
-    if (assignRadio) assignRadio.checked = true;
+  // 0 key selects district 10 (for quick access to first double-digit district)
+  if (key === '0') {
+    if (numDistricts >= 10) {
+      setSelectedDistrict(10);
+      const assignRadio = document.querySelector('input[name="drawMode"][value="assign"]');
+      if (assignRadio) assignRadio.checked = true;
+    }
     return;
   }
   
@@ -505,6 +507,11 @@ function getSelectedDistrict() {
  * Set the current selected district
  */
 function setSelectedDistrict(district) {
+  // Validate district is within valid bounds
+  if (district < 1 || district > numDistricts) {
+    console.warn(`Invalid district ${district}, must be between 1 and ${numDistricts}`);
+    return;
+  }
   selectedDistrict = district;
   // Update legend selection state
   const legendItems = districtColorLegend.querySelectorAll('.legend-item');
@@ -516,6 +523,8 @@ function setSelectedDistrict(district) {
       item.classList.remove('selected');
     }
   });
+  // Update dropdown if it exists
+  updateDistrictSelector();
 }
 
 /**
