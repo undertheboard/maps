@@ -71,12 +71,16 @@ function return_bytes($val) {
     $last = strtolower($val[strlen($val)-1]);
     $val = (int)$val;
     switch($last) {
-        case 'g': $val *= 1024;
-        case 'm': $val *= 1024;
-        case 'k': $val *= 1024;
+        case 'g': $val *= 1024 * 1024 * 1024; break;
+        case 'm': $val *= 1024 * 1024; break;
+        case 'k': $val *= 1024; break;
     }
     return $val;
 }
+
+// Constants for streaming large files
+define('CHUNK_SIZE', 65536); // 64KB chunks
+define('MAX_BUFFER_SIZE', 10 * 1024 * 1024); // 10MB max buffer
 
 // Error handling
 ini_set('display_errors', 1);
@@ -364,7 +368,7 @@ function handleLargeGeoJSONImport(string $tmpFile, string $stateCode, string $ta
     $featureStart = -1;
     
     while (!feof($inFp)) {
-        $chunk = fread($inFp, 65536); // 64KB chunks
+        $chunk = fread($inFp, CHUNK_SIZE);
         $buffer .= $chunk;
         
         // Look for the features array start
@@ -442,7 +446,7 @@ function handleLargeGeoJSONImport(string $tmpFile, string $stateCode, string $ta
         }
         
         // Prevent buffer from growing too large
-        if (strlen($buffer) > 10 * 1024 * 1024 && $featureStart === -1) {
+        if (strlen($buffer) > MAX_BUFFER_SIZE && $featureStart === -1) {
             $buffer = '';
         }
     }

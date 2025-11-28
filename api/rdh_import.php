@@ -820,10 +820,8 @@ function mergeGeoJSONFiles(array $files, string $targetDir): string
  */
 function normalizeRDHProperties(array $props, int $index): array
 {
-    $upper = [];
-    foreach ($props as $k => $v) {
-        $upper[strtoupper((string)$k)] = $v;
-    }
+    // Convert all keys to uppercase for case-insensitive matching
+    $upper = array_change_key_case($props, CASE_UPPER);
     
     $normalized = [];
     
@@ -947,10 +945,16 @@ function getStateCode(string $state): string
         'wisconsin' => 'WI', 'wyoming' => 'WY', 'district of columbia' => 'DC',
     ];
     
-    // Check if already a code
-    if (strlen($state) === 2) {
+    // Check if already a valid 2-letter code
+    if (strlen($state) === 2 && in_array(strtoupper($state), $codes)) {
         return strtoupper($state);
     }
     
-    return $codes[$state] ?? strtoupper(substr($state, 0, 2));
+    // Look up full state name
+    if (isset($codes[$state])) {
+        return $codes[$state];
+    }
+    
+    // Return empty string for unrecognized states
+    return '';
 }
