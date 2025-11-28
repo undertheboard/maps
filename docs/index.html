@@ -44,11 +44,20 @@
         <input type="radio" name="drawMode" value="erase">
         Unassign precincts
       </label>
-      <label>
-        <input type="checkbox" id="multiSelect"> Multi-select (future use)
-      </label>
+      
+      <div style="margin-top: 0.5rem;">
+        <label for="districtSelector" style="font-size:0.85rem;">Paint with District:</label>
+        <select id="districtSelector" style="width:100%;padding:0.4rem;margin-top:0.25rem;">
+          <option value="1">District 1</option>
+        </select>
+      </div>
+      
+      <p style="font-size:0.75rem;color:#6b7280;margin-top:0.5rem;">
+        <strong>Shortcuts:</strong> 1-9 = select district, E = erase, A = assign
+      </p>
 
       <h3>District Colors</h3>
+      <p style="font-size:0.75rem;color:#6b7280;">Click a district to select it for painting.</p>
       <div id="districtColorLegend"></div>
 
       <h3>Metrics</h3>

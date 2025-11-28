@@ -91,6 +91,18 @@ if (!file_exists($statesFile) || !is_dir($dataDir . '/precincts') || !is_dir($da
             <label class="radio-label"><input type="radio" name="drawMode" value="assign" checked><span class="radio-text">Assign to district</span></label>
             <label class="radio-label"><input type="radio" name="drawMode" value="erase"><span class="radio-text">Remove from district</span></label>
           </div>
+          <div class="district-selector-container">
+            <label for="districtSelector">Paint with District:</label>
+            <select id="districtSelector" class="input-select">
+              <option value="1">District 1</option>
+            </select>
+          </div>
+          <div class="shortcuts-panel">
+            <h4>⌨️ Keyboard Shortcuts</h4>
+            <div class="shortcut-item"><span class="shortcut-key">1-9</span><span class="shortcut-desc">Select district</span></div>
+            <div class="shortcut-item"><span class="shortcut-key">E</span><span class="shortcut-desc">Toggle erase mode</span></div>
+            <div class="shortcut-item"><span class="shortcut-key">A</span><span class="shortcut-desc">Toggle assign mode</span></div>
+          </div>
         </div>
 
         <div class="panel">

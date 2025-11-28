@@ -201,6 +201,68 @@ function attachEventHandlers() {
       }
     });
   });
+  
+  // District selector dropdown
+  const districtSelector = document.getElementById('districtSelector');
+  if (districtSelector) {
+    districtSelector.addEventListener('change', () => {
+      const val = parseInt(districtSelector.value, 10);
+      if (val >= 1 && val <= numDistricts) {
+        setSelectedDistrict(val);
+      }
+    });
+  }
+  
+  // Keyboard shortcuts
+  document.addEventListener('keydown', handleKeyboardShortcut);
+}
+
+/**
+ * Handle keyboard shortcuts for district selection and mode switching
+ */
+function handleKeyboardShortcut(e) {
+  // Ignore if typing in an input field
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+    return;
+  }
+  
+  const key = e.key.toLowerCase();
+  
+  // Number keys 1-9 select districts
+  if (key >= '1' && key <= '9') {
+    const district = parseInt(key, 10);
+    if (district <= numDistricts) {
+      setSelectedDistrict(district);
+      // Also switch to assign mode
+      const assignRadio = document.querySelector('input[name="drawMode"][value="assign"]');
+      if (assignRadio) assignRadio.checked = true;
+    }
+    return;
+  }
+  
+  // 0 key selects district 10 (for quick access to first double-digit district)
+  if (key === '0') {
+    if (numDistricts >= 10) {
+      setSelectedDistrict(10);
+      const assignRadio = document.querySelector('input[name="drawMode"][value="assign"]');
+      if (assignRadio) assignRadio.checked = true;
+    }
+    return;
+  }
+  
+  // 'E' toggles erase mode
+  if (key === 'e') {
+    const eraseRadio = document.querySelector('input[name="drawMode"][value="erase"]');
+    if (eraseRadio) eraseRadio.checked = true;
+    return;
+  }
+  
+  // 'A' toggles assign mode
+  if (key === 'a') {
+    const assignRadio = document.querySelector('input[name="drawMode"][value="assign"]');
+    if (assignRadio) assignRadio.checked = true;
+    return;
+  }
 }
 
 /**
@@ -265,14 +327,66 @@ async function loadStatesList() {
   }
 }
 
+/**
+ * Show/hide/update the map loading indicator
+ */
+function showMapLoadingIndicator(show, progress = 0, message = 'Loading...') {
+  let indicator = document.getElementById('mapLoadingIndicator');
+  
+  if (!indicator) {
+    // Create the loading indicator if it doesn't exist
+    indicator = document.createElement('div');
+    indicator.id = 'mapLoadingIndicator';
+    indicator.className = 'map-loading-indicator';
+    indicator.innerHTML = `
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading...</div>
+        <div class="loading-progress-bar">
+          <div class="loading-progress-fill"></div>
+        </div>
+        <div class="loading-progress-text">0%</div>
+      </div>
+    `;
+    const mapPanel = document.querySelector('.map-panel');
+    if (mapPanel) {
+      mapPanel.appendChild(indicator);
+    }
+  }
+  
+  const textEl = indicator.querySelector('.loading-text');
+  const progressFill = indicator.querySelector('.loading-progress-fill');
+  const progressText = indicator.querySelector('.loading-progress-text');
+  
+  if (show) {
+    indicator.classList.add('active');
+    if (textEl) textEl.textContent = message;
+    if (progressFill) progressFill.style.width = progress + '%';
+    if (progressText) progressText.textContent = Math.round(progress) + '%';
+  } else {
+    indicator.classList.remove('active');
+  }
+}
+
 async function loadState(stateCode) {
+  // Show loading indicator
+  showMapLoadingIndicator(true, 10, `Loading ${stateCode} state data...`);
+  
   try {
+    showMapLoadingIndicator(true, 30, 'Fetching precinct data...');
     const res = await fetch(`api/load_state.php?state=${encodeURIComponent(stateCode)}`);
+    
+    showMapLoadingIndicator(true, 50, 'Processing data...');
     const data = await res.json();
+    
     if (data.error) {
+      showMapLoadingIndicator(false);
       alert(data.error);
       return;
     }
+    
+    showMapLoadingIndicator(true, 60, 'Setting up state...');
+    
     // data.state.code should match e.g. "NC"
     currentState = data.state.code;
     currentStateMeta = data.state;
@@ -286,17 +400,35 @@ async function loadState(stateCode) {
     // Save the selected state to localStorage for auto-loading on next visit
     localStorage.setItem('lastSelectedState', stateCode);
 
+    showMapLoadingIndicator(true, 70, 'Loading saved plans...');
     await loadStatePlansList(currentState);
 
+    showMapLoadingIndicator(true, 80, 'Rendering map...');
+    
     // Canvas engine
     setGeojson(currentGeojson, currentAssignments);
     renderDistrictLegend(numDistricts);
+    
+    showMapLoadingIndicator(true, 90, 'Computing metrics...');
     recomputeMetrics();
 
-    // NEW: also update Leaflet basemap overlay
+    // Update Leaflet basemap overlay
+    showMapLoadingIndicator(true, 95, 'Finalizing map display...');
     updateLeafletOverlay(currentGeojson);
+    
+    // Update district selector
+    updateDistrictSelector();
+    
+    showMapLoadingIndicator(true, 100, 'Complete!');
+    
+    // Hide after a brief delay
+    setTimeout(() => {
+      showMapLoadingIndicator(false);
+    }, 500);
+    
   } catch (e) {
     console.error(e);
+    showMapLoadingIndicator(false);
     alert('Failed to load state data. Check api/load_state.php.');
   }
 }
@@ -356,6 +488,9 @@ async function loadPlan(stateCode, planId) {
     renderDistrictLegend(numDistricts);
     recomputeMetrics();
     redrawMap();
+    
+    // Refresh Leaflet precinct styles to show loaded assignments
+    refreshPrecinctStyles();
   } catch (e) {
     console.error(e);
     alert('Could not load plan. Check api/load_plan.php and file permissions.');
@@ -373,17 +508,18 @@ function handlePrecinctClick(precinctId, buttonMode) {
   if (drawMode === 'erase') {
     delete currentAssignments[precinctId];
   } else {
-    const targetDistrict = pickCurrentDistrictForUser();
-    currentAssignments[precinctId] = targetDistrict;
+    currentAssignments[precinctId] = selectedDistrict;
   }
 
+  // Refresh styles on Leaflet layer
+  refreshPrecinctStyles();
+  
   recomputeMetrics();
   redrawMap();
 }
 
 function pickCurrentDistrictForUser() {
-  // For now, always district 1.
-  return 1;
+  return selectedDistrict;
 }
 
 function handleHoverPrecinct(precinctFeature, screenX, screenY) {
@@ -416,16 +552,58 @@ function renderDistrictLegend(n) {
   const colors = getDistrictColors(n);
   for (let i = 1; i <= n; i++) {
     const item = document.createElement('div');
-    item.className = 'legend-item';
+    item.className = 'legend-item' + (i === selectedDistrict ? ' selected' : '');
+    item.dataset.district = i;
+    
     const swatch = document.createElement('div');
     swatch.className = 'legend-color';
     swatch.style.background = colors[i];
     item.appendChild(swatch);
+    
     const label = document.createElement('span');
     label.textContent = `District ${i}`;
     item.appendChild(label);
+    
+    // Make clickable to select district
+    item.addEventListener('click', () => {
+      setSelectedDistrict(i);
+    });
+    
     districtColorLegend.appendChild(item);
   }
+  
+  // Also update the district selector dropdown if it exists
+  updateDistrictSelector();
+}
+
+/**
+ * Update the district selector dropdown
+ */
+function updateDistrictSelector() {
+  const selector = document.getElementById('districtSelector');
+  if (!selector) return;
+  
+  selector.innerHTML = '';
+  const colors = getDistrictColors(numDistricts);
+  
+  for (let i = 1; i <= numDistricts; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `District ${i}`;
+    opt.selected = (i === selectedDistrict);
+    selector.appendChild(opt);
+  }
+  
+  // Update legend selection state
+  const legendItems = districtColorLegend.querySelectorAll('.legend-item');
+  legendItems.forEach(item => {
+    const d = parseInt(item.dataset.district, 10);
+    if (d === selectedDistrict) {
+      item.classList.add('selected');
+    } else {
+      item.classList.remove('selected');
+    }
+  });
 }
 
 async function saveCurrentPlanToServer() {
@@ -727,6 +905,9 @@ function handleAutomap() {
       recomputeMetrics();
       redrawMap();
       
+      // Refresh Leaflet precinct styles
+      refreshPrecinctStyles();
+      
       // Show success message with summary
       const statusMsg = `✓ Generated in ${duration}s. ` +
         `Dem seats: ${summary.summary.demSeats}, ` +
@@ -755,17 +936,74 @@ function handleAutomap() {
 
 let leafletMap = null;
 let leafletPrecinctLayer = null;
+let selectedDistrict = 1;  // Currently selected district for painting
 
 function initLeafletMap() {
   if (leafletMap) return;
   const div = document.getElementById('leafletMap');
   if (!div) return;
 
-  leafletMap = L.map('leafletMap').setView([37.8, -96], 4);
+  leafletMap = L.map('leafletMap', {
+    preferCanvas: true  // Better performance for many features
+  }).setView([37.8, -96], 4);
+  
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors',
   }).addTo(leafletMap);
+}
+
+/**
+ * Get the fill color for a precinct based on its district assignment
+ */
+function getPrecinctFillColor(precinctId) {
+  if (!currentAssignments || !precinctId) return 'transparent';
+  const district = currentAssignments[precinctId];
+  if (!district) return 'transparent';
+  const colors = getDistrictColors(numDistricts);
+  return colors[district] || 'transparent';
+}
+
+/**
+ * Get the current selected district
+ */
+function getSelectedDistrict() {
+  return selectedDistrict;
+}
+
+/**
+ * Set the current selected district
+ */
+function setSelectedDistrict(district) {
+  // Validate district is within valid bounds
+  if (district < 1 || district > numDistricts) {
+    console.warn(`Invalid district ${district}, must be between 1 and ${numDistricts}`);
+    return;
+  }
+  selectedDistrict = district;
+  updateDistrictSelector();
+}
+
+/**
+ * Update the Leaflet precinct layer styles based on current assignments
+ */
+function refreshPrecinctStyles() {
+  if (!leafletPrecinctLayer) return;
+  
+  leafletPrecinctLayer.eachLayer(layer => {
+    const feature = layer.feature;
+    if (!feature) return;
+    const props = feature.properties || {};
+    const precinctId = props.id || props.precinct_id;
+    const fillColor = getPrecinctFillColor(precinctId);
+    
+    layer.setStyle({
+      fillColor: fillColor === 'transparent' ? '#3388ff' : fillColor,
+      fillOpacity: fillColor === 'transparent' ? 0.15 : 0.6,
+      color: '#374151',
+      weight: 0.5
+    });
+  });
 }
 
 function updateLeafletOverlay(geojson) {
@@ -779,22 +1017,58 @@ function updateLeafletOverlay(geojson) {
   }
 
   leafletPrecinctLayer = L.geoJSON(geojson, {
-    style: feature => ({
-      color: '#555',
-      weight: 0.5,
-      fillColor: '#3388ff',
-      fillOpacity: 0.4,
-    }),
+    style: feature => {
+      const props = feature.properties || {};
+      const precinctId = props.id || props.precinct_id;
+      const fillColor = getPrecinctFillColor(precinctId);
+      
+      return {
+        color: '#374151',
+        weight: 0.5,
+        fillColor: fillColor === 'transparent' ? '#3388ff' : fillColor,
+        fillOpacity: fillColor === 'transparent' ? 0.15 : 0.6,  // More transparent for unassigned
+      };
+    },
     onEachFeature: (feature, layer) => {
       const p = feature.properties || {};
+      const precinctId = p.id || p.precinct_id;
+      
+      // Build popup content
       const lines = [];
-      if (p.id !== undefined) lines.push(`<b>ID:</b> ${p.id}`);
-      if (p.population !== undefined) lines.push(`<b>Population:</b> ${p.population}`);
-      if (p.dem !== undefined) lines.push(`<b>Dem:</b> ${p.dem}`);
-      if (p.rep !== undefined) lines.push(`<b>Rep:</b> ${p.rep}`);
+      if (precinctId !== undefined) lines.push(`<b>Precinct:</b> ${precinctId}`);
+      if (p.population !== undefined) lines.push(`<b>Population:</b> ${Number(p.population).toLocaleString()}`);
+      if (p.dem !== undefined) lines.push(`<b>Dem:</b> ${Number(p.dem).toLocaleString()}`);
+      if (p.rep !== undefined) lines.push(`<b>Rep:</b> ${Number(p.rep).toLocaleString()}`);
+      
+      const assignedDistrict = currentAssignments[precinctId];
+      lines.push(`<b>District:</b> ${assignedDistrict || 'Unassigned'}`);
+      
       if (lines.length) {
         layer.bindPopup(lines.join('<br>'));
       }
+      
+      // Add click handler for painting/erasing districts
+      layer.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        handleLeafletPrecinctClick(precinctId, layer);
+      });
+      
+      // Add hover effect
+      layer.on('mouseover', () => {
+        layer.setStyle({ weight: 2, color: '#1f2937' });
+        layer.bringToFront();
+        updateHoverInfo(feature, layer);
+      });
+      
+      layer.on('mouseout', () => {
+        const fillColor = getPrecinctFillColor(precinctId);
+        layer.setStyle({ 
+          weight: 0.5, 
+          color: '#374151',
+          fillColor: fillColor === 'transparent' ? '#3388ff' : fillColor,
+          fillOpacity: fillColor === 'transparent' ? 0.15 : 0.6
+        });
+      });
     },
   }).addTo(leafletMap);
 
@@ -806,6 +1080,74 @@ function updateLeafletOverlay(geojson) {
   } catch (e) {
     console.warn('Could not fit Leaflet bounds:', e);
   }
+}
+
+/**
+ * Handle click on a Leaflet precinct layer
+ */
+function handleLeafletPrecinctClick(precinctId, layer) {
+  if (!precinctId) return;
+  
+  // Create plan if needed
+  if (!currentPlan) {
+    createNewPlan();
+  }
+  
+  const drawMode = document.querySelector('input[name="drawMode"]:checked')?.value || 'assign';
+  
+  if (drawMode === 'erase') {
+    delete currentAssignments[precinctId];
+  } else {
+    currentAssignments[precinctId] = selectedDistrict;
+  }
+  
+  // Update layer style immediately
+  const fillColor = getPrecinctFillColor(precinctId);
+  layer.setStyle({
+    fillColor: fillColor === 'transparent' ? '#3388ff' : fillColor,
+    fillOpacity: fillColor === 'transparent' ? 0.15 : 0.6
+  });
+  
+  // Update popup content
+  const feature = layer.feature;
+  if (feature) {
+    const p = feature.properties || {};
+    const lines = [];
+    if (precinctId !== undefined) lines.push(`<b>Precinct:</b> ${precinctId}`);
+    if (p.population !== undefined) lines.push(`<b>Population:</b> ${Number(p.population).toLocaleString()}`);
+    if (p.dem !== undefined) lines.push(`<b>Dem:</b> ${Number(p.dem).toLocaleString()}`);
+    if (p.rep !== undefined) lines.push(`<b>Rep:</b> ${Number(p.rep).toLocaleString()}`);
+    lines.push(`<b>District:</b> ${currentAssignments[precinctId] || 'Unassigned'}`);
+    layer.setPopupContent(lines.join('<br>'));
+  }
+  
+  recomputeMetrics();
+}
+
+/**
+ * Update hover info panel
+ */
+function updateHoverInfo(feature, layer) {
+  const hoverInfo = document.getElementById('hoverInfo');
+  if (!hoverInfo) return;
+  
+  const p = feature.properties || {};
+  const precinctId = p.id || p.precinct_id;
+  const pop = p.population ?? 'N/A';
+  const dem = p.dem ?? 'N/A';
+  const rep = p.rep ?? 'N/A';
+  const assigned = currentAssignments[precinctId] ?? 'Unassigned';
+  
+  hoverInfo.innerHTML = `
+    <strong>Precinct: ${precinctId}</strong><br>
+    District: ${assigned}<br>
+    Population: ${typeof pop === 'number' ? pop.toLocaleString() : pop}<br>
+    Dem votes: ${typeof dem === 'number' ? dem.toLocaleString() : dem}<br>
+    Rep votes: ${typeof rep === 'number' ? rep.toLocaleString() : rep}
+  `;
+  hoverInfo.style.display = 'block';
+  hoverInfo.style.left = '10px';
+  hoverInfo.style.top = '50px';
 }
 
 // ------------------- RDH Direct Import -------------------
