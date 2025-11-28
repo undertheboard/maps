@@ -26,6 +26,13 @@ const geojsonImportOptions = document.getElementById('geojsonImportOptions');
 const csvImportOptions = document.getElementById('csvImportOptions');
 const rdhInfo = document.getElementById('rdhInfo');
 
+// Automap elements
+const fairnessPresetSelect = document.getElementById('fairnessPreset');
+const useCustomTargetCheckbox = document.getElementById('useCustomTarget');
+const customTargetInput = document.getElementById('customTarget');
+const automapBtn = document.getElementById('automapBtn');
+const automapStatus = document.getElementById('automapStatus');
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize the Leaflet basemap immediately so the map is visible
   initLeafletMap();
@@ -103,6 +110,17 @@ function attachEventHandlers() {
 
   if (enhancedImportForm) {
     enhancedImportForm.addEventListener('submit', handleEnhancedImport);
+  }
+
+  // Automap event handlers
+  if (useCustomTargetCheckbox && customTargetInput) {
+    useCustomTargetCheckbox.addEventListener('change', () => {
+      customTargetInput.disabled = !useCustomTargetCheckbox.checked;
+    });
+  }
+
+  if (automapBtn) {
+    automapBtn.addEventListener('click', handleAutomap);
   }
 }
 
@@ -470,6 +488,93 @@ async function handleEnhancedImport(e) {
     console.error('Import failed:', e);
     importStatus.textContent = 'Import failed (network or JavaScript error). See console.';
   }
+}
+
+// ------------------- Automap Generator -------------------
+
+function handleAutomap() {
+  if (!currentState || !currentGeojson) {
+    alert('Please load a state first before generating an automap.');
+    return;
+  }
+
+  if (!window.Automap) {
+    alert('Automap module not loaded. Please refresh the page.');
+    return;
+  }
+
+  if (automapStatus) {
+    automapStatus.textContent = 'Generating map...';
+    automapStatus.style.color = '#0369a1';
+  }
+
+  // Get settings
+  const fairnessPreset = fairnessPresetSelect ? fairnessPresetSelect.value : 'fair';
+  let customTargetDemShare = null;
+  
+  if (useCustomTargetCheckbox && useCustomTargetCheckbox.checked && customTargetInput) {
+    customTargetDemShare = parseInt(customTargetInput.value, 10) / 100;
+    if (isNaN(customTargetDemShare) || customTargetDemShare < 0 || customTargetDemShare > 1) {
+      customTargetDemShare = null;
+    }
+  }
+
+  // Use setTimeout to allow UI to update before blocking algorithm runs
+  setTimeout(() => {
+    try {
+      const startTime = performance.now();
+      
+      // Create automap instance and generate
+      const automap = new Automap(
+        currentGeojson,
+        numDistricts,
+        fairnessPreset,
+        customTargetDemShare
+      );
+      
+      const newAssignments = automap.generate();
+      const summary = automap.getSummary();
+      
+      const endTime = performance.now();
+      const duration = ((endTime - startTime) / 1000).toFixed(2);
+      
+      // Apply the generated assignments
+      currentAssignments = newAssignments;
+      
+      // Create or update current plan
+      if (!currentPlan) {
+        createNewPlan();
+      }
+      currentPlan.assignments = currentAssignments;
+      currentPlan.name = `Automap - ${FAIRNESS_PRESETS[fairnessPreset]?.label || 'Custom'}`;
+      planNameInput.value = currentPlan.name;
+      
+      // Redraw and update metrics
+      recomputeMetrics();
+      redrawMap();
+      
+      // Show success message with summary
+      const statusMsg = `✓ Generated in ${duration}s. ` +
+        `Dem seats: ${summary.summary.demSeats}, ` +
+        `Rep seats: ${summary.summary.repSeats}, ` +
+        `Tossup: ${summary.summary.tossupSeats}. ` +
+        `Avg Dem share: ${(summary.summary.averageDemShare * 100).toFixed(1)}%`;
+      
+      if (automapStatus) {
+        automapStatus.textContent = statusMsg;
+        automapStatus.style.color = '#16a34a';
+      }
+      
+      console.log('Automap summary:', summary);
+      
+    } catch (error) {
+      console.error('Automap generation failed:', error);
+      if (automapStatus) {
+        automapStatus.textContent = 'Error: ' + error.message;
+        automapStatus.style.color = '#dc2626';
+      }
+    }
+  }, 50);
 }
 
 // ------------------- Leaflet basemap + overlay -------------------

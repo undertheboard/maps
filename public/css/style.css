@@ -194,3 +194,50 @@ button:hover {
   font-weight: 600;
   color: #1f2937;
 }
+
+/* Automap controls */
+.automap-controls {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.automap-controls label {
+  font-size: 0.85rem;
+}
+
+.automap-controls select {
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
+.automap-btn {
+  width: 100%;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border: 1px solid #15803d;
+  color: white;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.automap-btn:hover {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.automap-btn:active {
+  transform: translateY(0);
+}
+
+#automapStatus {
+  font-size: 0.75rem;
+  padding: 0.25rem;
+  border-radius: 3px;
+}
