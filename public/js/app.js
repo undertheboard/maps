@@ -768,6 +768,34 @@ function initLeafletMap() {
   }).addTo(leafletMap);
 }
 
+/**
+ * Calculate fill color for a precinct based on color mode and district assignment
+ * @param {Object} props - Feature properties
+ * @param {number|null} district - District assignment (null if unassigned)
+ * @param {string} colorMode - Color mode ('precinct_lean', 'district_lean', or 'district_set')
+ * @param {Object} districtColors - Map of district numbers to colors
+ * @returns {string} Hex color code
+ */
+function calculatePrecinctFillColor(props, district, colorMode, districtColors) {
+  if (colorMode === 'precinct_lean') {
+    // Color by precinct's own partisan lean
+    const dem = Number(props.dem || props.dem_votes || 0);
+    const rep = Number(props.rep || props.rep_votes || 0);
+    const total = dem + rep;
+    if (total > 0) {
+      const demShare = dem / total;
+      return typeof getPartisanLeanColor === 'function' ? getPartisanLeanColor(demShare) : '#3388ff';
+    }
+    return '#e5e7eb'; // Gray for no data
+  }
+  
+  if (district && districtColors && districtColors[district]) {
+    return districtColors[district];
+  }
+  
+  return '#ffffff'; // White for unassigned
+}
+
 function updateLeafletOverlay(geojson) {
   if (!geojson) return;
   initLeafletMap();
@@ -786,23 +814,7 @@ function updateLeafletOverlay(geojson) {
       const props = feature.properties || {};
       const precinctId = props.id || props.precinct_id;
       const district = currentAssignments && precinctId ? currentAssignments[precinctId] : null;
-      
-      let fillColor = '#ffffff';
-      
-      if (colorMode === 'precinct_lean') {
-        // Color by precinct's own partisan lean
-        const dem = Number(props.dem || props.dem_votes || 0);
-        const rep = Number(props.rep || props.rep_votes || 0);
-        const total = dem + rep;
-        if (total > 0) {
-          const demShare = dem / total;
-          fillColor = typeof getPartisanLeanColor === 'function' ? getPartisanLeanColor(demShare) : '#3388ff';
-        } else {
-          fillColor = '#e5e7eb';
-        }
-      } else if (district && districtColors[district]) {
-        fillColor = districtColors[district];
-      }
+      const fillColor = calculatePrecinctFillColor(props, district, colorMode, districtColors);
       
       return {
         color: '#374151',
@@ -832,7 +844,7 @@ function updateLeafletOverlay(geojson) {
           const dem = props.dem ?? 'N/A';
           const rep = props.rep ?? 'N/A';
           const id = precinctId || '(no id)';
-          const assigned = currentAssignments[id] ?? 'Unassigned';
+          const assigned = (currentAssignments && currentAssignments[id]) ?? 'Unassigned';
 
           hoverInfo.innerHTML = `
             <strong>Precinct: ${id}</strong><br>
@@ -890,22 +902,7 @@ function refreshLeafletStyles() {
     const props = feature.properties || {};
     const precinctId = props.id || props.precinct_id;
     const district = currentAssignments && precinctId ? currentAssignments[precinctId] : null;
-    
-    let fillColor = '#ffffff';
-    
-    if (colorMode === 'precinct_lean') {
-      const dem = Number(props.dem || props.dem_votes || 0);
-      const rep = Number(props.rep || props.rep_votes || 0);
-      const total = dem + rep;
-      if (total > 0) {
-        const demShare = dem / total;
-        fillColor = typeof getPartisanLeanColor === 'function' ? getPartisanLeanColor(demShare) : '#3388ff';
-      } else {
-        fillColor = '#e5e7eb';
-      }
-    } else if (district && districtColors[district]) {
-      fillColor = districtColors[district];
-    }
+    const fillColor = calculatePrecinctFillColor(props, district, colorMode, districtColors);
     
     layer.setStyle({
       color: '#374151',
