@@ -18,11 +18,21 @@ const uploadStatus = document.getElementById('uploadStatus');
 const metricsPanel = document.getElementById('metricsPanel');
 const districtColorLegend = document.getElementById('districtColorLegend');
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadStatesList();
+document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize the Leaflet basemap immediately so the map is visible
+  initLeafletMap();
+  
+  await loadStatesList();
   attachEventHandlers();
   // Initialize your existing canvas-based map
   initMapCanvas(handlePrecinctClick, handleHoverPrecinct);
+  
+  // Auto-load the last selected state if available
+  const lastState = localStorage.getItem('lastSelectedState');
+  if (lastState && stateSelect.querySelector(`option[value="${lastState}"]`)) {
+    stateSelect.value = lastState;
+    loadState(lastState);
+  }
 });
 
 function attachEventHandlers() {
@@ -103,6 +113,9 @@ async function loadState(stateCode) {
 
     numDistricts = data.defaultNumDistricts || 10;
     numDistrictsInput.value = numDistricts;
+
+    // Save the selected state to localStorage for auto-loading on next visit
+    localStorage.setItem('lastSelectedState', stateCode);
 
     await loadStatePlansList(currentState);
 
