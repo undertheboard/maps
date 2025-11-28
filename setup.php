@@ -3,10 +3,11 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-$baseDir   = __DIR__;
-$dataDir   = $baseDir . '/data';
-$precDir   = $dataDir . '/precincts';
-$plansDir  = $dataDir . '/plans';
+$baseDir    = __DIR__;
+$dataDir    = $baseDir . '/data';
+$precDir    = $dataDir . '/precincts';
+$plansDir   = $dataDir . '/plans';
+$tmpDir     = $dataDir . '/tmp_shapefiles';
 $statesFile = $dataDir . '/states.json';
 
 $steps = [];
@@ -69,6 +70,59 @@ if (!is_dir($plansDir)) {
     }
 } else {
     $steps[] = "plans directory exists: $plansDir";
+}
+
+// tmp_shapefiles directory (for shapefile upload processing)
+if (!is_dir($tmpDir)) {
+    if (!mkdir($tmpDir, 0775, true)) {
+        $errors[] = "Could not create tmp_shapefiles directory '$tmpDir'.";
+    } else {
+        $steps[] = "Created tmp_shapefiles directory: $tmpDir";
+    }
+} else {
+    $steps[] = "tmp_shapefiles directory exists: $tmpDir";
+}
+
+// Check write permissions
+if (is_dir($dataDir) && !is_writable($dataDir)) {
+    $errors[] = "Data directory is not writable: $dataDir";
+}
+if (is_dir($precDir) && !is_writable($precDir)) {
+    $errors[] = "Precincts directory is not writable: $precDir";
+}
+if (is_dir($plansDir) && !is_writable($plansDir)) {
+    $errors[] = "Plans directory is not writable: $plansDir";
+}
+if (is_dir($tmpDir) && !is_writable($tmpDir)) {
+    $errors[] = "Temp directory is not writable: $tmpDir";
+}
+
+// Check upload limits
+$uploadMaxSize = ini_get('upload_max_filesize');
+$postMaxSize = ini_get('post_max_size');
+$steps[] = "PHP upload_max_filesize: $uploadMaxSize";
+$steps[] = "PHP post_max_size: $postMaxSize";
+
+// Convert to bytes for comparison
+function parseSize($size) {
+    $size = trim($size);
+    $last = strtolower($size[strlen($size)-1]);
+    $size = (int)$size;
+    switch($last) {
+        case 'g': $size *= 1024;
+        case 'm': $size *= 1024;
+        case 'k': $size *= 1024;
+    }
+    return $size;
+}
+
+$uploadBytes = parseSize($uploadMaxSize);
+$postBytes = parseSize($postMaxSize);
+if ($uploadBytes < 50 * 1024 * 1024) {
+    $warnings[] = "upload_max_filesize ($uploadMaxSize) is less than 50MB. Large shapefiles may fail to upload.";
+}
+if ($postBytes < 50 * 1024 * 1024) {
+    $warnings[] = "post_max_size ($postMaxSize) is less than 50MB. Large uploads may fail.";
 }
 
 // states.json
