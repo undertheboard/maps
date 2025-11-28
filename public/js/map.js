@@ -13,6 +13,82 @@ let isPanning = false;
 let panStart = { x: 0, y: 0 };
 let panOffsetStart = { x: 0, y: 0 };
 
+// Display options
+let displayOptions = {
+  showCountyBorders: false,
+  showPrecinctLines: true,
+  colorMode: 'district_set'  // 'district_set', 'district_lean', 'precinct_lean'
+};
+
+// Partisan lean color scale
+// Equal (within 1%): Yellow
+// Within 3%: Slight red/blue
+// Within 5%: Lean red/blue
+// Within 10%: Likely red/blue
+// Within 15%: Deeper red/blue
+// Beyond 15%: Dark red/blue
+const PARTISAN_COLORS = {
+  dem: {
+    tossup: '#fef08a',      // Yellow (within 1%)
+    slight: '#93c5fd',      // Light blue (1-3%)
+    lean: '#60a5fa',        // Blue (3-5%)
+    likely: '#3b82f6',      // Medium blue (5-10%)
+    strong: '#2563eb',      // Deeper blue (10-15%)
+    safe: '#1d4ed8'         // Dark blue (15%+)
+  },
+  rep: {
+    tossup: '#fef08a',      // Yellow (within 1%)
+    slight: '#fca5a5',      // Light red (1-3%)
+    lean: '#f87171',        // Red (3-5%)
+    likely: '#ef4444',      // Medium red (5-10%)
+    strong: '#dc2626',      // Deeper red (10-15%)
+    safe: '#b91c1c'         // Dark red (15%+)
+  }
+};
+
+/**
+ * Get color based on partisan lean
+ * @param {number} demShare - Democratic vote share (0-1)
+ * @returns {string} Color hex code
+ */
+function getPartisanLeanColor(demShare) {
+  const margin = (demShare - 0.5) * 100; // Convert to percentage margin
+  const absMargin = Math.abs(margin);
+  
+  if (absMargin <= 1) {
+    return PARTISAN_COLORS.dem.tossup; // Yellow for tossup
+  }
+  
+  const party = margin > 0 ? 'dem' : 'rep';
+  
+  if (absMargin <= 3) {
+    return PARTISAN_COLORS[party].slight;
+  } else if (absMargin <= 5) {
+    return PARTISAN_COLORS[party].lean;
+  } else if (absMargin <= 10) {
+    return PARTISAN_COLORS[party].likely;
+  } else if (absMargin <= 15) {
+    return PARTISAN_COLORS[party].strong;
+  } else {
+    return PARTISAN_COLORS[party].safe;
+  }
+}
+
+/**
+ * Set display options
+ */
+function setDisplayOptions(options) {
+  displayOptions = { ...displayOptions, ...options };
+  redrawMap();
+}
+
+/**
+ * Get current display options
+ */
+function getDisplayOptions() {
+  return { ...displayOptions };
+}
+
 function initMapCanvas(onClick, onHover) {
   canvas = document.getElementById('mapCanvas');
   ctx = canvas.getContext('2d');
@@ -112,6 +188,15 @@ function redrawMap() {
   if (!geojsonData || !geojsonData.features) return;
 
   const districtColors = getDistrictColors(50);
+  
+  // Calculate district stats for district lean coloring
+  let districtStats = {};
+  if (displayOptions.colorMode === 'district_lean') {
+    districtStats = calculateDistrictStats();
+  }
+
+  // Group precincts by county for county border drawing
+  const countyPrecincts = new Map();
 
   geojsonData.features.forEach(f => {
     const geom = f.geometry;
@@ -119,10 +204,47 @@ function redrawMap() {
     const props = f.properties || {};
     const precinctId = props.id || props.precinct_id;
     const district = assignmentsRef && precinctId ? assignmentsRef[precinctId] : null;
+    const county = props.county || props.COUNTY || props.COUNTYFP || props.COUNTYFP20 || 'unknown';
+    
+    // Track counties for border drawing
+    if (!countyPrecincts.has(county)) {
+      countyPrecincts.set(county, []);
+    }
+    countyPrecincts.set(county, [...countyPrecincts.get(county), f]);
 
+    // Determine fill color based on color mode
     let fillStyle = '#ffffff';
-    if (district && districtColors[district]) {
-      fillStyle = districtColors[district];
+    
+    switch (displayOptions.colorMode) {
+      case 'precinct_lean':
+        // Color by precinct's own partisan lean
+        const dem = Number(props.dem || props.dem_votes || 0);
+        const rep = Number(props.rep || props.rep_votes || 0);
+        const total = dem + rep;
+        if (total > 0) {
+          const demShare = dem / total;
+          fillStyle = getPartisanLeanColor(demShare);
+        } else {
+          fillStyle = '#e5e7eb'; // Gray for no data
+        }
+        break;
+        
+      case 'district_lean':
+        // Color by district's partisan lean
+        if (district && districtStats[district]) {
+          fillStyle = getPartisanLeanColor(districtStats[district].demShare);
+        } else if (district && districtColors[district]) {
+          fillStyle = districtColors[district];
+        }
+        break;
+        
+      case 'district_set':
+      default:
+        // Original behavior: color by district set color
+        if (district && districtColors[district]) {
+          fillStyle = districtColors[district];
+        }
+        break;
     }
 
     ctx.beginPath();
@@ -132,10 +254,77 @@ function redrawMap() {
       geom.coordinates.forEach(poly => drawPolygon(poly));
     }
     ctx.fillStyle = fillStyle;
-    ctx.strokeStyle = '#374151';
-    ctx.lineWidth = 0.5;
+    
+    // Draw precinct lines if enabled
+    if (displayOptions.showPrecinctLines) {
+      ctx.strokeStyle = '#374151';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+    
     ctx.fill();
-    ctx.stroke();
+  });
+
+  // Draw county borders if enabled
+  if (displayOptions.showCountyBorders) {
+    drawCountyBorders(countyPrecincts);
+  }
+}
+
+/**
+ * Calculate partisan stats for each district
+ */
+function calculateDistrictStats() {
+  const stats = {};
+  
+  if (!geojsonData || !geojsonData.features) return stats;
+  
+  geojsonData.features.forEach(f => {
+    const props = f.properties || {};
+    const precinctId = props.id || props.precinct_id;
+    const district = assignmentsRef && precinctId ? assignmentsRef[precinctId] : null;
+    
+    if (!district) return;
+    
+    if (!stats[district]) {
+      stats[district] = { dem: 0, rep: 0, demShare: 0.5 };
+    }
+    
+    stats[district].dem += Number(props.dem || props.dem_votes || 0);
+    stats[district].rep += Number(props.rep || props.rep_votes || 0);
+  });
+  
+  // Calculate dem share for each district
+  Object.keys(stats).forEach(d => {
+    const total = stats[d].dem + stats[d].rep;
+    stats[d].demShare = total > 0 ? stats[d].dem / total : 0.5;
+  });
+  
+  return stats;
+}
+
+/**
+ * Draw county borders with thicker lines
+ */
+function drawCountyBorders(countyPrecincts) {
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 2;
+  
+  countyPrecincts.forEach((precincts, county) => {
+    // Draw each precinct's outer boundary that's on a county edge
+    // For simplicity, we draw all precinct boundaries with thick lines for same county
+    precincts.forEach(f => {
+      const geom = f.geometry;
+      if (!geom) return;
+      
+      ctx.beginPath();
+      if (geom.type === 'Polygon') {
+        drawPolygon(geom.coordinates);
+      } else if (geom.type === 'MultiPolygon') {
+        geom.coordinates.forEach(poly => drawPolygon(poly));
+      }
+      ctx.stroke();
+    });
   });
 }
 
@@ -257,3 +446,7 @@ window.initMapCanvas = initMapCanvas;
 window.setGeojson = setGeojson;
 window.redrawMap = redrawMap;
 window.getDistrictColors = getDistrictColors;
+window.setDisplayOptions = setDisplayOptions;
+window.getDisplayOptions = getDisplayOptions;
+window.getPartisanLeanColor = getPartisanLeanColor;
+window.PARTISAN_COLORS = PARTISAN_COLORS;

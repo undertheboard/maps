@@ -167,7 +167,127 @@ button:hover {
   background: #eef2ff;
 }
 
-#uploadStatus {
+#uploadStatus,
+#importStatus {
   font-size: 0.8rem;
   margin-top: 0.25rem;
+}
+
+#importStatus.success {
+  color: #16a34a;
+}
+
+#importStatus.error {
+  color: #dc2626;
+}
+
+#rdhInfo {
+  background: #e0f2fe;
+  border: 1px solid #7dd3fc;
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  color: #0369a1;
+}
+
+.sidebar select optgroup {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+/* Automap controls */
+.automap-controls {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.automap-controls label {
+  font-size: 0.85rem;
+}
+
+.automap-controls select {
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
+.automap-btn {
+  width: 100%;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border: 1px solid #15803d;
+  color: white;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.automap-btn:hover {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.automap-btn:active {
+  transform: translateY(0);
+}
+
+#automapStatus {
+  font-size: 0.75rem;
+  padding: 0.25rem;
+  border-radius: 3px;
+}
+
+/* Display options */
+.display-options {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.display-options label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.display-options select {
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
+/* Partisan color legend */
+.color-legend {
+  margin-top: 0.5rem;
+}
+
+.partisan-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid #d1d5db;
+  flex-shrink: 0;
+}
+
+.legend-label {
+  color: #4b5563;
 }

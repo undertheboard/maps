@@ -18,6 +18,27 @@ const uploadStatus = document.getElementById('uploadStatus');
 const metricsPanel = document.getElementById('metricsPanel');
 const districtColorLegend = document.getElementById('districtColorLegend');
 
+// Enhanced import form elements
+const enhancedImportForm = document.getElementById('enhancedImportForm');
+const importTypeSelect = document.getElementById('importType');
+const importStatus = document.getElementById('importStatus');
+const geojsonImportOptions = document.getElementById('geojsonImportOptions');
+const csvImportOptions = document.getElementById('csvImportOptions');
+const rdhInfo = document.getElementById('rdhInfo');
+
+// Automap elements
+const fairnessPresetSelect = document.getElementById('fairnessPreset');
+const useCustomTargetCheckbox = document.getElementById('useCustomTarget');
+const customTargetInput = document.getElementById('customTarget');
+const automapBtn = document.getElementById('automapBtn');
+const automapStatus = document.getElementById('automapStatus');
+
+// Display options elements
+const showCountyBordersCheckbox = document.getElementById('showCountyBorders');
+const showPrecinctLinesCheckbox = document.getElementById('showPrecinctLines');
+const colorModeSelect = document.getElementById('colorMode');
+const colorLegendDiv = document.getElementById('colorLegend');
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize the Leaflet basemap immediately so the map is visible
   initLeafletMap();
@@ -26,6 +47,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   attachEventHandlers();
   // Initialize your existing canvas-based map
   initMapCanvas(handlePrecinctClick, handleHoverPrecinct);
+  
+  // Initialize color legend
+  updateColorLegend();
   
   // Auto-load the last selected state if available
   const lastState = localStorage.getItem('lastSelectedState');
@@ -72,6 +96,101 @@ function attachEventHandlers() {
   });
 
   uploadForm.addEventListener('submit', handleUpload);
+
+  // Enhanced import form handlers
+  if (importTypeSelect) {
+    importTypeSelect.addEventListener('change', () => {
+      const type = importTypeSelect.value;
+      const isGeoJSON = type === 'geojson' || type === 'rdh_geojson';
+      const isCSV = type === 'csv_merge' || type === 'rdh_csv';
+      const isRDH = type === 'rdh_geojson' || type === 'rdh_csv';
+      
+      if (geojsonImportOptions) {
+        geojsonImportOptions.style.display = isGeoJSON ? 'block' : 'none';
+      }
+      if (csvImportOptions) {
+        csvImportOptions.style.display = isCSV ? 'block' : 'none';
+      }
+      if (rdhInfo) {
+        rdhInfo.style.display = isRDH ? 'block' : 'none';
+      }
+    });
+  }
+
+  if (enhancedImportForm) {
+    enhancedImportForm.addEventListener('submit', handleEnhancedImport);
+  }
+
+  // Automap event handlers
+  if (useCustomTargetCheckbox && customTargetInput) {
+    useCustomTargetCheckbox.addEventListener('change', () => {
+      customTargetInput.disabled = !useCustomTargetCheckbox.checked;
+    });
+  }
+
+  if (automapBtn) {
+    automapBtn.addEventListener('click', handleAutomap);
+  }
+
+  // Display options event handlers
+  if (showCountyBordersCheckbox) {
+    showCountyBordersCheckbox.addEventListener('change', () => {
+      setDisplayOptions({ showCountyBorders: showCountyBordersCheckbox.checked });
+    });
+  }
+
+  if (showPrecinctLinesCheckbox) {
+    showPrecinctLinesCheckbox.addEventListener('change', () => {
+      setDisplayOptions({ showPrecinctLines: showPrecinctLinesCheckbox.checked });
+    });
+  }
+
+  if (colorModeSelect) {
+    colorModeSelect.addEventListener('change', () => {
+      setDisplayOptions({ colorMode: colorModeSelect.value });
+      updateColorLegend();
+    });
+  }
+}
+
+/**
+ * Update color legend based on current color mode
+ */
+function updateColorLegend() {
+  if (!colorLegendDiv) return;
+  
+  const colorMode = colorModeSelect ? colorModeSelect.value : 'district_set';
+  
+  if (colorMode === 'district_set') {
+    colorLegendDiv.innerHTML = '<p style="font-size:0.75rem;color:#6b7280;">Colors assigned by district number.</p>';
+    return;
+  }
+  
+  // Show partisan lean legend
+  const legendItems = [
+    { label: 'Safe D (15%+)', color: '#1d4ed8' },
+    { label: 'Strong D (10-15%)', color: '#2563eb' },
+    { label: 'Likely D (5-10%)', color: '#3b82f6' },
+    { label: 'Lean D (3-5%)', color: '#60a5fa' },
+    { label: 'Slight D (1-3%)', color: '#93c5fd' },
+    { label: 'Tossup (±1%)', color: '#fef08a' },
+    { label: 'Slight R (1-3%)', color: '#fca5a5' },
+    { label: 'Lean R (3-5%)', color: '#f87171' },
+    { label: 'Likely R (5-10%)', color: '#ef4444' },
+    { label: 'Strong R (10-15%)', color: '#dc2626' },
+    { label: 'Safe R (15%+)', color: '#b91c1c' }
+  ];
+  
+  let html = '<div class="partisan-legend">';
+  legendItems.forEach(item => {
+    html += `<div class="legend-row">
+      <span class="legend-swatch" style="background:${item.color};"></span>
+      <span class="legend-label">${item.label}</span>
+    </div>`;
+  });
+  html += '</div>';
+  
+  colorLegendDiv.innerHTML = html;
 }
 
 async function loadStatesList() {
@@ -380,6 +499,154 @@ async function handleUpload(e) {
     console.error('Upload failed:', e);
     uploadStatus.textContent = 'Upload failed (network or JavaScript error). See console.';
   }
+}
+
+async function handleEnhancedImport(e) {
+  e.preventDefault();
+  if (!importStatus) return;
+  
+  importStatus.textContent = 'Importing...';
+  const formData = new FormData(enhancedImportForm);
+  
+  try {
+    const res = await fetch('api/import_data.php', {
+      method: 'POST',
+      body: formData
+    });
+
+    const text = await res.text();
+    console.log('import_data.php raw response:', text);
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('Import response was not valid JSON:', parseErr);
+      importStatus.textContent = 'Server error: response is not JSON. See console.';
+      return;
+    }
+
+    if (!data.ok) {
+      importStatus.textContent = 'Error: ' + (data.error || 'Unknown error');
+      console.error('Import error object:', data);
+      return;
+    }
+
+    // Build success message based on import type
+    let successMsg = 'Import successful. ';
+    if (data.importType === 'geojson') {
+      successMsg += `${data.featureCount || 0} features imported.`;
+      if (data.warnings && data.warnings.length > 0) {
+        successMsg += ` Warnings: ${data.warnings.length}`;
+        console.warn('Import warnings:', data.warnings);
+      }
+    } else if (data.importType === 'csv_merge') {
+      successMsg += `${data.matchCount || 0} features matched. ${data.unmatchedCount || 0} unmatched.`;
+    }
+    
+    importStatus.textContent = successMsg;
+    
+    // Reload state data if we just imported data for the current state
+    if (data.stateCode === currentState) {
+      loadState(currentState);
+    }
+    
+    // Refresh states list in case a new state was added
+    await loadStatesList();
+  } catch (e) {
+    console.error('Import failed:', e);
+    importStatus.textContent = 'Import failed (network or JavaScript error). See console.';
+  }
+}
+
+// ------------------- Automap Generator -------------------
+
+function handleAutomap() {
+  if (!currentState || !currentGeojson) {
+    alert('Please load a state first before generating an automap.');
+    return;
+  }
+
+  if (!window.Automap) {
+    alert('Automap module not loaded. Please refresh the page.');
+    return;
+  }
+
+  if (automapStatus) {
+    automapStatus.textContent = 'Generating map...';
+    automapStatus.style.color = '#0369a1';
+  }
+
+  // Get settings
+  const fairnessPreset = fairnessPresetSelect ? fairnessPresetSelect.value : 'fair';
+  let customTargetDemShare = null;
+  
+  if (useCustomTargetCheckbox && useCustomTargetCheckbox.checked && customTargetInput) {
+    customTargetDemShare = parseFloat(customTargetInput.value) / 100;
+    if (isNaN(customTargetDemShare) || customTargetDemShare < 0 || customTargetDemShare > 1) {
+      customTargetDemShare = null;
+    }
+  }
+
+  // Use setTimeout to allow UI to update before blocking algorithm runs
+  setTimeout(() => {
+    try {
+      const startTime = performance.now();
+      
+      // Create automap instance and generate
+      const automap = new Automap(
+        currentGeojson,
+        numDistricts,
+        fairnessPreset,
+        customTargetDemShare
+      );
+      
+      const newAssignments = automap.generate();
+      const summary = automap.getSummary();
+      
+      const endTime = performance.now();
+      const duration = ((endTime - startTime) / 1000).toFixed(2);
+      
+      // Apply the generated assignments
+      currentAssignments = newAssignments;
+      
+      // Create or update current plan
+      if (!currentPlan) {
+        createNewPlan();
+      }
+      currentPlan.assignments = currentAssignments;
+      const presetLabel = window.FAIRNESS_PRESETS && window.FAIRNESS_PRESETS[fairnessPreset] 
+        ? window.FAIRNESS_PRESETS[fairnessPreset].label 
+        : 'Custom';
+      currentPlan.name = `Automap - ${presetLabel}`;
+      planNameInput.value = currentPlan.name;
+      
+      // Redraw and update metrics
+      recomputeMetrics();
+      redrawMap();
+      
+      // Show success message with summary
+      const statusMsg = `✓ Generated in ${duration}s. ` +
+        `Dem seats: ${summary.summary.demSeats}, ` +
+        `Rep seats: ${summary.summary.repSeats}, ` +
+        `Tossup: ${summary.summary.tossupSeats}. ` +
+        `Avg Dem share: ${(summary.summary.averageDemShare * 100).toFixed(1)}%`;
+      
+      if (automapStatus) {
+        automapStatus.textContent = statusMsg;
+        automapStatus.style.color = '#16a34a';
+      }
+      
+      console.log('Automap summary:', summary);
+      
+    } catch (error) {
+      console.error('Automap generation failed:', error);
+      if (automapStatus) {
+        automapStatus.textContent = 'Error: ' + error.message;
+        automapStatus.style.color = '#dc2626';
+      }
+    }
+  }, 50);
 }
 
 // ------------------- Leaflet basemap + overlay -------------------
