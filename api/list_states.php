@@ -24,9 +24,11 @@ if (file_exists($statesFile)) {
     $json = json_decode(file_get_contents($statesFile), true);
     if (is_array($json)) {
         foreach ($json as $st) {
-            $code = strtoupper($st['code'] ?? $st['abbr'] ?? '');
-            if ($code !== '') {
-                $statesMeta[$code] = $st;
+            // Use abbr (state abbreviation like "CA", "NC") first for the lookup key,
+            // fall back to code (FIPS code like "06", "37") if abbr not present
+            $abbr = strtoupper($st['abbr'] ?? $st['code'] ?? '');
+            if ($abbr !== '') {
+                $statesMeta[$abbr] = $st;
             }
         }
     }

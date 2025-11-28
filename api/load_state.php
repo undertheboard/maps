@@ -99,12 +99,14 @@ if (file_exists($statesFile)) {
     $metaJson = json_decode(file_get_contents($statesFile), true);
     if (is_array($metaJson)) {
         foreach ($metaJson as $st) {
-            $code = strtoupper($st['code'] ?? $st['abbr'] ?? '');
-            if ($code === $stateCode) {
+            // Use abbr (state abbreviation like "CA", "NC") first for matching,
+            // fall back to code (FIPS code like "06", "37") if abbr not present
+            $abbr = strtoupper($st['abbr'] ?? $st['code'] ?? '');
+            if ($abbr === $stateCode) {
                 $stateMeta = [
-                    'code' => $code,
-                    'abbr' => $st['abbr'] ?? $st['code'] ?? $code,
-                    'name' => $st['name'] ?? $code,
+                    'code' => $abbr,
+                    'abbr' => $st['abbr'] ?? $st['code'] ?? $abbr,
+                    'name' => $st['name'] ?? $abbr,
                 ];
                 break;
             }
