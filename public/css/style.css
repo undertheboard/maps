@@ -173,6 +173,52 @@ button:hover {
   margin-top: 0.25rem;
 }
 
+/* Upload progress bars */
+.upload-progress-container {
+  display: none;
+  margin-top: 0.5rem;
+}
+
+.upload-progress-container.active {
+  display: block;
+}
+
+.upload-progress-bar {
+  width: 100%;
+  height: 20px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.upload-progress-bar .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+  width: 0%;
+}
+
+.upload-progress-bar .progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1f2937;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.8);
+}
+
+.upload-progress-container.complete .progress-fill {
+  background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+}
+
+.upload-progress-container.error .progress-fill {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
 #importStatus.success {
   color: #16a34a;
 }

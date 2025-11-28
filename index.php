@@ -131,6 +131,12 @@ if (!file_exists($statesFile) || !is_dir($dataDir . '/precincts') || !is_dir($da
 
         <button type="submit">Upload / Replace</button>
       </form>
+      <div id="uploadProgressContainer" class="upload-progress-container">
+        <div class="upload-progress-bar">
+          <div class="progress-fill" id="uploadProgressFill"></div>
+          <span class="progress-text" id="uploadProgressText">0%</span>
+        </div>
+      </div>
       <div id="uploadStatus"></div>
 
       <h3>Enhanced Data Import</h3>
@@ -191,6 +197,12 @@ if (!file_exists($statesFile) || !is_dir($dataDir . '/precincts') || !is_dir($da
 
         <button type="submit" style="margin-top:0.5rem;">Import Data</button>
       </form>
+      <div id="importProgressContainer" class="upload-progress-container">
+        <div class="upload-progress-bar">
+          <div class="progress-fill" id="importProgressFill"></div>
+          <span class="progress-text" id="importProgressText">0%</span>
+        </div>
+      </div>
       <div id="importStatus"></div>
 
       <h3>System Status</h3>

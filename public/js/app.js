@@ -464,74 +464,120 @@ function renderMetrics(metrics) {
 
 async function handleUpload(e) {
   e.preventDefault();
-  uploadStatus.textContent = 'Uploading...';
+  
+  const progressContainer = document.getElementById('uploadProgressContainer');
+  const progressFill = document.getElementById('uploadProgressFill');
+  const progressText = document.getElementById('uploadProgressText');
+  
+  uploadStatus.textContent = '';
+  progressContainer.className = 'upload-progress-container active';
+  progressFill.style.width = '0%';
+  progressText.textContent = '0%';
+  
   const formData = new FormData(uploadForm);
-  try {
-    const res = await fetch('api/upload_precincts.php', {
-      method: 'POST',
-      body: formData
-    });
-
-    const text = await res.text();
+  
+  const xhr = new XMLHttpRequest();
+  
+  xhr.upload.addEventListener('progress', (event) => {
+    if (event.lengthComputable) {
+      const percentComplete = Math.round((event.loaded / event.total) * 100);
+      progressFill.style.width = percentComplete + '%';
+      progressText.textContent = percentComplete + '%';
+    }
+  });
+  
+  xhr.addEventListener('load', () => {
+    progressContainer.className = 'upload-progress-container active complete';
+    progressFill.style.width = '100%';
+    progressText.textContent = '100%';
+    
+    const text = xhr.responseText;
     console.log('upload_precincts.php raw response:', text);
-
+    
     let data;
     try {
       data = JSON.parse(text);
     } catch (parseErr) {
       console.error('Upload response was not valid JSON:', parseErr);
+      progressContainer.className = 'upload-progress-container active error';
       uploadStatus.textContent = 'Server error: response is not JSON. See console.';
       return;
     }
-
+    
     if (data.error) {
+      progressContainer.className = 'upload-progress-container active error';
       uploadStatus.textContent = 'Error: ' + data.error;
       console.error('Upload error object:', data);
       return;
     }
-
+    
     uploadStatus.textContent =
       `Uploaded and converted successfully. ${data.featureCount || 0} features.`;
     if (data.stateCode === currentState) {
       loadState(currentState);
     }
-  } catch (e) {
-    console.error('Upload failed:', e);
-    uploadStatus.textContent = 'Upload failed (network or JavaScript error). See console.';
-  }
+  });
+  
+  xhr.addEventListener('error', () => {
+    progressContainer.className = 'upload-progress-container active error';
+    console.error('Upload failed: network error');
+    uploadStatus.textContent = 'Upload failed (network error). See console.';
+  });
+  
+  xhr.open('POST', 'api/upload_precincts.php');
+  xhr.send(formData);
 }
 
 async function handleEnhancedImport(e) {
   e.preventDefault();
   if (!importStatus) return;
   
-  importStatus.textContent = 'Importing...';
+  const progressContainer = document.getElementById('importProgressContainer');
+  const progressFill = document.getElementById('importProgressFill');
+  const progressText = document.getElementById('importProgressText');
+  
+  importStatus.textContent = '';
+  progressContainer.className = 'upload-progress-container active';
+  progressFill.style.width = '0%';
+  progressText.textContent = '0%';
+  
   const formData = new FormData(enhancedImportForm);
   
-  try {
-    const res = await fetch('api/import_data.php', {
-      method: 'POST',
-      body: formData
-    });
-
-    const text = await res.text();
+  const xhr = new XMLHttpRequest();
+  
+  xhr.upload.addEventListener('progress', (event) => {
+    if (event.lengthComputable) {
+      const percentComplete = Math.round((event.loaded / event.total) * 100);
+      progressFill.style.width = percentComplete + '%';
+      progressText.textContent = percentComplete + '%';
+    }
+  });
+  
+  xhr.addEventListener('load', () => {
+    progressContainer.className = 'upload-progress-container active complete';
+    progressFill.style.width = '100%';
+    progressText.textContent = '100%';
+    
+    const text = xhr.responseText;
     console.log('import_data.php raw response:', text);
-
+    
     let data;
     try {
       data = JSON.parse(text);
     } catch (parseErr) {
       console.error('Import response was not valid JSON:', parseErr);
+      progressContainer.className = 'upload-progress-container active error';
       importStatus.textContent = 'Server error: response is not JSON. See console.';
       return;
     }
-
+    
     if (!data.ok) {
+      progressContainer.className = 'upload-progress-container active error';
       importStatus.textContent = 'Error: ' + (data.error || 'Unknown error');
       console.error('Import error object:', data);
       return;
     }
-
+    
     // Build success message based on import type
     let successMsg = 'Import successful. ';
     if (data.importType === 'geojson') {
@@ -552,11 +598,17 @@ async function handleEnhancedImport(e) {
     }
     
     // Refresh states list in case a new state was added
-    await loadStatesList();
-  } catch (e) {
-    console.error('Import failed:', e);
-    importStatus.textContent = 'Import failed (network or JavaScript error). See console.';
-  }
+    loadStatesList();
+  });
+  
+  xhr.addEventListener('error', () => {
+    progressContainer.className = 'upload-progress-container active error';
+    console.error('Import failed: network error');
+    importStatus.textContent = 'Import failed (network error). See console.';
+  });
+  
+  xhr.open('POST', 'api/import_data.php');
+  xhr.send(formData);
 }
 
 // ------------------- Automap Generator -------------------
