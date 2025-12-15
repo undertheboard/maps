@@ -13,6 +13,60 @@ if (!file_exists($statesFile) || !is_dir($dataDir . '/precincts') || !is_dir($da
     header('Location: setup.php');
     exit;
 }
+
+// Parse districts.csv file
+$districtsData = [];
+$districtsFile = $dataDir . '/districts.csv';
+if (file_exists($districtsFile)) {
+    $handle = fopen($districtsFile, 'r');
+    if ($handle) {
+        // Read header row
+        $header = fgetcsv($handle);
+        
+        // Read data rows
+        while (($row = fgetcsv($handle)) !== false) {
+            // Check if this is a valid data row (has columns)
+            if (count($row) < count($header)) {
+                continue;
+            }
+            
+            // Create associative array from row
+            $rowData = array_combine($header, $row);
+            
+            // Get the District ID (first column)
+            $districtId = trim($rowData['ID']);
+            
+            // Skip the state summary row (empty ID)
+            if ($districtId === '') {
+                continue;
+            }
+            
+            // Skip "Un" (unassigned) row
+            if ($districtId === 'Un') {
+                continue;
+            }
+            
+            // Store district data keyed by District ID
+            $districtsData[$districtId] = [
+                'id' => $districtId,
+                'total_pop' => floatval($rowData['Total Pop']),
+                'deviation' => floatval($rowData['Deviation']),
+                'dem' => floatval($rowData['Dem']),
+                'rep' => floatval($rowData['Rep']),
+                'oth' => floatval($rowData['Oth']),
+                'total_vap' => floatval($rowData['Total VAP']),
+                'white' => floatval($rowData['White']),
+                'minority' => floatval($rowData['Minority']),
+                'hispanic' => floatval($rowData['Hispanic']),
+                'black' => floatval($rowData['Black']),
+                'asian' => floatval($rowData['Asian']),
+                'native' => floatval($rowData['Native']),
+                'pacific' => floatval($rowData['Pacific'])
+            ];
+        }
+        fclose($handle);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -277,6 +331,10 @@ if (!file_exists($statesFile) || !is_dir($dataDir . '/precincts') || !is_dir($da
     </section>
   </main>
 
+  <script>
+    // Districts data from CSV
+    window.districtsData = <?php echo json_encode($districtsData); ?>;
+  </script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="public/js/map.js"></script>
   <script src="public/js/metrics.js"></script>

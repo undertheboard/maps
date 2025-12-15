@@ -954,6 +954,28 @@ function initLeafletMap() {
 }
 
 /**
+ * Get the fill color for a district based on CSV data
+ * @param {string} districtId - The district ID from the feature
+ * @returns {string} - Color hex code or null if not found
+ */
+function getDistrictColorFromCSV(districtId) {
+  if (!window.districtsData || !districtId) return null;
+  
+  const district = window.districtsData[districtId];
+  if (!district) return null;
+  
+  const dem = district.dem;
+  const rep = district.rep;
+  
+  // Color based on political lean: Dem > Rep ? Blue : Red
+  if (dem > rep) {
+    return '#0074D9'; // Blue for Democratic
+  } else {
+    return '#FF4136'; // Red for Republican
+  }
+}
+
+/**
  * Get the fill color for a precinct based on its district assignment
  */
 function getPrecinctFillColor(precinctId) {
@@ -995,7 +1017,13 @@ function refreshPrecinctStyles() {
     if (!feature) return;
     const props = feature.properties || {};
     const precinctId = props.id || props.precinct_id;
-    const fillColor = getPrecinctFillColor(precinctId);
+    
+    // Check for district color first, then fall back to precinct color
+    const districtId = props.ID || props.id;
+    let fillColor = getDistrictColorFromCSV(districtId);
+    if (!fillColor) {
+      fillColor = getPrecinctFillColor(precinctId);
+    }
     
     layer.setStyle({
       fillColor: fillColor === 'transparent' ? '#3388ff' : fillColor,
@@ -1020,7 +1048,15 @@ function updateLeafletOverlay(geojson) {
     style: feature => {
       const props = feature.properties || {};
       const precinctId = props.id || props.precinct_id;
-      const fillColor = getPrecinctFillColor(precinctId);
+      
+      // First, try to get color from district CSV data (if feature represents a district)
+      const districtId = props.ID || props.id;
+      let fillColor = getDistrictColorFromCSV(districtId);
+      
+      // Fall back to precinct coloring if no district data found
+      if (!fillColor) {
+        fillColor = getPrecinctFillColor(precinctId);
+      }
       
       return {
         color: '#374151',
@@ -1035,13 +1071,32 @@ function updateLeafletOverlay(geojson) {
       
       // Build popup content
       const lines = [];
-      if (precinctId !== undefined) lines.push(`<b>Precinct:</b> ${precinctId}`);
-      if (p.population !== undefined) lines.push(`<b>Population:</b> ${Number(p.population).toLocaleString()}`);
-      if (p.dem !== undefined) lines.push(`<b>Dem:</b> ${Number(p.dem).toLocaleString()}`);
-      if (p.rep !== undefined) lines.push(`<b>Rep:</b> ${Number(p.rep).toLocaleString()}`);
       
-      const assignedDistrict = currentAssignments[precinctId];
-      lines.push(`<b>District:</b> ${assignedDistrict || 'Unassigned'}`);
+      // Check if this feature has district data from CSV
+      const districtId = p.ID || p.id;
+      const districtData = window.districtsData && window.districtsData[districtId];
+      
+      if (districtData) {
+        // Show district information from CSV
+        lines.push(`<b>District ID:</b> ${districtData.id}`);
+        lines.push(`<b>Total Population:</b> ${districtData.total_pop.toLocaleString()}`);
+        lines.push(`<b>Dem:</b> ${(districtData.dem * 100).toFixed(2)}%`);
+        lines.push(`<b>Rep:</b> ${(districtData.rep * 100).toFixed(2)}%`);
+        
+        // Calculate margin
+        const margin = Math.abs(districtData.dem - districtData.rep) * 100;
+        const leader = districtData.dem > districtData.rep ? 'Dem' : 'Rep';
+        lines.push(`<b>Margin:</b> ${leader} +${margin.toFixed(2)}%`);
+      } else {
+        // Show precinct information
+        if (precinctId !== undefined) lines.push(`<b>Precinct:</b> ${precinctId}`);
+        if (p.population !== undefined) lines.push(`<b>Population:</b> ${Number(p.population).toLocaleString()}`);
+        if (p.dem !== undefined) lines.push(`<b>Dem:</b> ${Number(p.dem).toLocaleString()}`);
+        if (p.rep !== undefined) lines.push(`<b>Rep:</b> ${Number(p.rep).toLocaleString()}`);
+        
+        const assignedDistrict = currentAssignments[precinctId];
+        lines.push(`<b>District:</b> ${assignedDistrict || 'Unassigned'}`);
+      }
       
       if (lines.length) {
         layer.bindPopup(lines.join('<br>'));
@@ -1061,7 +1116,13 @@ function updateLeafletOverlay(geojson) {
       });
       
       layer.on('mouseout', () => {
-        const fillColor = getPrecinctFillColor(precinctId);
+        // Check for district color first, then fall back to precinct color
+        const districtId = p.ID || p.id;
+        let fillColor = getDistrictColorFromCSV(districtId);
+        if (!fillColor) {
+          fillColor = getPrecinctFillColor(precinctId);
+        }
+        
         layer.setStyle({ 
           weight: 0.5, 
           color: '#374151',
