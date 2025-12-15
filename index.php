@@ -25,8 +25,8 @@ if (file_exists($districtsFile)) {
         
         // Read data rows
         while (($row = fgetcsv($handle)) !== false) {
-            // Check if this is a valid data row (has columns)
-            if (count($row) < count($header)) {
+            // Check if this is a valid data row (has correct number of columns)
+            if (count($row) !== count($header)) {
                 continue;
             }
             

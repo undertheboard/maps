@@ -968,7 +968,8 @@ function getDistrictColorFromCSV(districtId) {
   const rep = district.rep;
   
   // Color based on political lean: Dem > Rep ? Blue : Red
-  if (dem > rep) {
+  // In case of exact tie, default to blue
+  if (dem >= rep) {
     return '#0074D9'; // Blue for Democratic
   } else {
     return '#FF4136'; // Red for Republican
@@ -1078,6 +1079,7 @@ function updateLeafletOverlay(geojson) {
       
       if (districtData) {
         // Show district information from CSV
+        // Assume CSV values are in 0-1 range (validated in PHP)
         lines.push(`<b>District ID:</b> ${districtData.id}`);
         lines.push(`<b>Total Population:</b> ${districtData.total_pop.toLocaleString()}`);
         lines.push(`<b>Dem:</b> ${(districtData.dem * 100).toFixed(2)}%`);
@@ -1085,7 +1087,7 @@ function updateLeafletOverlay(geojson) {
         
         // Calculate margin
         const margin = Math.abs(districtData.dem - districtData.rep) * 100;
-        const leader = districtData.dem > districtData.rep ? 'Dem' : 'Rep';
+        const leader = districtData.dem >= districtData.rep ? 'Dem' : 'Rep';
         lines.push(`<b>Margin:</b> ${leader} +${margin.toFixed(2)}%`);
       } else {
         // Show precinct information
